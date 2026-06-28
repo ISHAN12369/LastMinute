@@ -1,0 +1,3870 @@
+<!--
++==============================================================================+
+|  LastMinute — AI-Powered Deadline Co-Pilot                                  |
+|  Version: 1.0.0                                                             |
+|  Architecture: Single-file SPA (React 18 + Zustand + Tailwind CSS)          |
++==============================================================================+
+|                                                                              |
+|  ARCHITECTURE                                                                |
+|  ------------                                                                |
+|  • React 18 via esm.sh CDN (no build step)                                  |
+|  • htm for JSX-like template literals                                        |
+|  • Zustand for global state management                                       |
+|  • Tailwind CSS CDN for utility-first styling                                |
+|  • Custom CSS for animations, dark theme, and specialty components           |
+|  • SVG for charts, heatmaps, and urgency pulse rings                         |
+|  • CSS Grid for calendar views                                               |
+|  • HTML5 Drag & Drop API for Kanban board                                    |
+|  • Web Speech API for voice input/output                                     |
+|  • Anthropic Claude API (claude-sonnet-4-6) for AI features              |
+|                                                                              |
+|  DATA FLOW                                                                   |
+|  ---------                                                                   |
+|  localStorage <> Zustand Store <> React Components                          |
+|                       |                                                      |
+|               Claude API (debounced)                                         |
+|                       |                                                      |
+|              AI Insights / Schedule                                          |
+|                                                                              |
+|  SECURITY MODEL                                                              |
+|  --------------                                                              |
+|  1. API key stored in localStorage as 'lm_api_key', never logged             |
+|  2. Key displayed masked: ••••••••XXXX (last 4 chars only)                   |
+|  3. All user input sanitized before prompt injection                          |
+|  4. No innerHTML/dangerouslySetInnerHTML — text nodes only                   |
+|  5. Client-side rate limiter: max 10 API calls per 60 seconds                |
+|  6. Error boundaries wrap every major section                                |
+|  7. Input validation on all form fields                                      |
+|                                                                              |
+|  API KEY SETUP                                                               |
+|  -------------                                                               |
+|  1. Open the app                                                             |
+|  2. Click the gear icon in the sidebar or the prompt on first launch         |
+|  3. Paste your Anthropic API key                                             |
+|  4. Key is stored locally — never sent anywhere except Anthropic's API       |
+|                                                                              |
+|  RUNNING TESTS                                                               |
+|  -------------                                                               |
+|  Append ?test=true to the URL to run the in-browser test suite.              |
+|  Results appear in a visible overlay panel with pass/fail indicators.        |
+|                                                                              |
++==============================================================================+
+-->
+<!DOCTYPE html>
+<html lang="en" class="light">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="LastMinute — AI-powered deadline co-pilot that helps you plan and complete tasks before you miss deadlines." />
+  <title>LastMinute — AI Deadline Co-Pilot</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600;700;800;900&family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            lm: {
+              bg: '#090B0A',
+              card: '#151815',
+              cardHover: '#1B201C',
+              primary: '#DFFF62',
+              primaryLight: '#B9FF4F',
+              completed: '#8EF0A7',
+              critical: '#FF7163',
+              warning: '#FFB35C',
+              caution: '#F4D35E',
+              text: '#F4F2E9',
+              muted: '#8E988F',
+              border: '#2A302B',
+              surface: '#101311',
+            }
+          },
+          fontFamily: {
+            heading: ['Archivo', 'sans-serif'],
+            body: ['Inter', 'sans-serif'],
+            mono: ['DM Mono', 'monospace'],
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    /* ========== BASE ========== */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #090B0A;
+      color: #F4F2E9;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      font-family: 'Archivo', sans-serif;
+      letter-spacing: -0.02em;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #F7F5EE;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #E6E5DC;
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #1E3A34;
+    }
+
+    /* ========== FOCUS ========== */
+    *:focus-visible {
+      outline: 2px solid #1E3A34;
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* ========== VIEW TRANSITIONS ========== */
+    .view-enter {
+      animation: viewIn 300ms ease forwards;
+    }
+
+    .view-exit {
+      animation: viewOut 200ms ease forwards;
+    }
+
+    @keyframes viewIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes viewOut {
+      from {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      to {
+        opacity: 0;
+        transform: translateY(-12px);
+      }
+    }
+
+    /* ========== CUSTOM CURSOR ========== */
+    .voldog-cursor-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #1E3A34;
+      border-radius: 50%;
+      position: fixed;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10000;
+      transition: width 0.2s ease, height 0.2s ease, background-color 0.2s ease;
+    }
+
+    .voldog-cursor-ring {
+      width: 32px;
+      height: 32px;
+      border: 1.5px solid rgba(30, 58, 52, 0.3);
+      border-radius: 50%;
+      position: fixed;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 9999;
+      transition: width 0.3s cubic-bezier(0.1, 0.8, 0.3, 1), height 0.3s cubic-bezier(0.1, 0.8, 0.3, 1), border-color 0.3s ease, background-color 0.3s ease;
+    }
+
+    .voldog-cursor-hovering .voldog-cursor-ring {
+      width: 52px;
+      height: 52px;
+      border-color: rgba(30, 58, 52, 0.9);
+      background-color: rgba(221, 226, 53, 0.2);
+    }
+
+    .voldog-cursor-hovering .voldog-cursor-dot {
+      background-color: #1E3A34;
+      width: 8px;
+      height: 8px;
+    }
+
+    @media (pointer: fine) {
+
+      body,
+      button,
+      a,
+      select,
+      input,
+      textarea,
+      [draggable="true"] {
+        cursor: none !important;
+      }
+    }
+
+    @media (pointer: coarse),
+    (hover: none) {
+
+      .voldog-cursor-dot,
+      .voldog-cursor-ring {
+        display: none !important;
+      }
+    }
+
+    /* ========== VOLDOG CUSTOM INTERACTIONS ========== */
+    .voldog-btn {
+      position: relative;
+      overflow: hidden;
+      transition: color 0.35s cubic-bezier(0.19, 1, 0.22, 1), border-color 0.35s ease, background-color 0.35s ease;
+      border: 1.5px solid #1E3A34;
+      background: #DDE235;
+      color: #1E3A34;
+      font-weight: 600;
+      border-radius: 9999px;
+    }
+
+    .voldog-btn::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      height: 0;
+      background-color: #1E3A34;
+      z-index: 0;
+      transition: height 0.35s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+
+    .voldog-btn:hover {
+      color: #F7F5EE !important;
+      border-color: #1E3A34;
+    }
+
+    .voldog-btn:hover::after {
+      height: 100%;
+    }
+
+    .voldog-btn>* {
+      position: relative;
+      z-index: 1;
+    }
+
+    .voldog-btn-secondary {
+      position: relative;
+      overflow: hidden;
+      transition: color 0.35s cubic-bezier(0.19, 1, 0.22, 1), border-color 0.35s ease;
+      border: 1.5px solid #E6E5DC;
+      background: #FFFFFF;
+      color: #1E3A34;
+      font-weight: 500;
+      border-radius: 9999px;
+    }
+
+    .voldog-btn-secondary::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      height: 0;
+      background-color: #1E3A34;
+      z-index: 0;
+      transition: height 0.35s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+
+    .voldog-btn-secondary:hover {
+      color: #F7F5EE !important;
+      border-color: #1E3A34;
+    }
+
+    .voldog-btn-secondary:hover::after {
+      height: 100%;
+    }
+
+    .voldog-btn-secondary>* {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ========== PULSE RING ========== */
+    @keyframes pulseRing {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    .pulse-ring-critical {
+      animation: pulseRing 1s ease-in-out infinite;
+    }
+
+    /* ========== CONFETTI ========== */
+    @keyframes confettiFall {
+      0% {
+        transform: translateY(0) rotate(0deg) scale(1);
+        opacity: 1;
+      }
+
+      100% {
+        transform: translateY(120px) rotate(720deg) scale(0);
+        opacity: 0;
+      }
+    }
+
+    .confetti-piece {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      animation: confettiFall 1s ease-out forwards;
+      pointer-events: none;
+    }
+
+    /* ========== SHIMMER ========== */
+    @keyframes shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    .shimmer {
+      background: linear-gradient(90deg, #FFFFFF 25%, #EFECE3 50%, #FFFFFF 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+      border-radius: 8px;
+    }
+
+    /* ========== CARD HOVER ========== */
+    .task-card {
+      position: relative;
+      background: #FFFFFF;
+      border: 1.5px solid #E6E5DC;
+      border-radius: 20px;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s ease, box-shadow 0.4s ease;
+      overflow: hidden;
+    }
+
+    .task-card::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #1E3A34, #DDE235);
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .task-card:hover {
+      transform: translateY(-4px) scale(1.005) rotate(0.1deg);
+      border-color: #1E3A34;
+      box-shadow: 0 16px 36px rgba(30, 58, 52, 0.06);
+    }
+
+    .task-card:hover::before {
+      width: 100%;
+      left: 0;
+    }
+
+    /* ========== VOICE WAVEFORM ========== */
+    @keyframes waveBar {
+
+      0%,
+      100% {
+        height: 8px;
+      }
+
+      50% {
+        height: 24px;
+      }
+    }
+
+    .wave-bar {
+      width: 3px;
+      background: #1E3A34;
+      border-radius: 2px;
+      animation: waveBar 0.6s ease-in-out infinite;
+    }
+
+    /* ========== TOAST ========== */
+    @keyframes toastIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes toastOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+
+    .toast-enter {
+      animation: toastIn 300ms ease forwards;
+    }
+
+    .toast-exit {
+      animation: toastOut 300ms ease forwards;
+    }
+
+    /* ========== ALERT BANNERS ========== */
+    @keyframes criticalPulse {
+
+      0%,
+      100% {
+        border-color: #E05A47;
+      }
+
+      50% {
+        border-color: #FFA590;
+        box-shadow: 0 0 20px rgba(224, 90, 71, 0.2);
+      }
+    }
+
+    .alert-critical {
+      animation: criticalPulse 1.5s ease-in-out infinite;
+    }
+
+    /* ========== SIDEBAR ========== */
+    .sidebar-collapsed {
+      width: 64px;
+    }
+
+    .sidebar-expanded {
+      width: 240px;
+    }
+
+    .sidebar-transition {
+      transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ========== KANBAN ========== */
+    .kanban-drop-active {
+      background: rgba(30, 58, 52, 0.03);
+      border: 2.5px dashed #1E3A34;
+    }
+
+    /* ========== REDUCED MOTION ========== */
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* ========== MOBILE ========== */
+    @media (max-width: 375px) {
+      .sidebar-desktop {
+        display: none !important;
+      }
+
+      .mobile-tab-bar {
+        display: flex !important;
+      }
+    }
+
+    @media (min-width: 376px) {
+      .mobile-tab-bar {
+        display: none !important;
+      }
+    }
+
+    /* ========== CHAT BUBBLES ========== */
+    .chat-user {
+      background: #1E3A34;
+      color: #F7F5EE;
+      border-radius: 18px 18px 4px 18px;
+      font-weight: 500;
+    }
+
+    .chat-ai {
+      background: #FFFFFF;
+      border-radius: 18px 18px 18px 4px;
+      border: 1.5px solid #E6E5DC;
+      color: #1E3A34;
+    }
+
+    /* ========== HEATMAP ========== */
+    .heatmap-cell {
+      border-radius: 2px;
+      transition: transform 150ms ease;
+    }
+
+    .heatmap-cell:hover {
+      transform: scale(1.5);
+    }
+
+    /* ========== TEST OVERLAY ========== */
+    .test-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(30, 58, 52, 0.98);
+      color: #F7F5EE;
+      z-index: 10000;
+      overflow-y: auto;
+      padding: 32px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ========== INPUT STYLES ========== */
+    input,
+    textarea,
+    select {
+      font-family: 'Manrope', sans-serif;
+      background: #FFFFFF;
+      border: 1.5px solid #E6E5DC;
+      color: #1E3A34;
+      transition: border-color 0.2s ease;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: #1E3A34;
+      outline: none;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: #6C8580;
+    }
+
+    /* ========== MASCOT & FOCUS ANIMATIONS ========== */
+    @keyframes mascotBreathe {
+
+      0%,
+      100% {
+        transform: translateY(0) scale(1);
+      }
+
+      50% {
+        transform: translateY(-4px) scale(1.02);
+      }
+    }
+
+    @keyframes mascotBlink {
+
+      0%,
+      90%,
+      100% {
+        transform: scaleY(1);
+      }
+
+      95% {
+        transform: scaleY(0.1);
+      }
+    }
+
+    @keyframes mascotTailWag {
+
+      0%,
+      100% {
+        transform: rotate(0deg);
+      }
+
+      50% {
+        transform: rotate(15deg);
+      }
+    }
+
+    .voldog-mascot-body {
+      animation: mascotBreathe 3s ease-in-out infinite;
+      transform-origin: bottom center;
+    }
+
+    .voldog-mascot-eye {
+      animation: mascotBlink 4s ease-in-out infinite;
+      transform-origin: center;
+    }
+
+    .voldog-mascot-tail {
+      animation: mascotTailWag 0.6s ease-in-out infinite;
+      transform-origin: bottom left;
+    }
+
+    .focus-mode-glow {
+      box-shadow: 0 24px 50px rgba(30, 58, 52, 0.08);
+    }
+
+    /* ========== PREMIUM 2.0 VISUAL SYSTEM ========== */
+    :root {
+      --ink: #090b0a;
+      --panel: #141714;
+      --lime: #dfff62;
+      --ivory: #f4f2e9;
+      --muted: #8e988f;
+      --line: rgba(244, 242, 233, .105);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+    }
+
+    body {
+      background: linear-gradient(-45deg, #090b0a, #0b0d1e, #1a0b1f, #071517, #09090b);
+      background-size: 400% 400%;
+      animation: gradientBG 22s ease infinite;
+      letter-spacing: -.01em;
+      position: relative;
+    }
+
+    @keyframes gradientBG {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      opacity: .17;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.28'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+    }
+
+    ::selection { color: #0b0d0b; background: var(--lime); }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #343b35; border-radius: 20px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--lime); }
+
+    .app-shell {
+      isolation: isolate;
+      background:
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+
+    /* ========== DYNAMIC BACKGROUND BLOBS ========== */
+    .bg-glow-blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.12;
+      mix-blend-mode: screen;
+      transition: background 1.2s ease, transform 1.2s ease;
+    }
+
+    .bg-glow-blob--1 {
+      width: 50vw;
+      height: 50vw;
+      top: -10vw;
+      right: -10vw;
+      background: radial-gradient(circle, var(--scene-accent, #dfff62) 0%, transparent 70%);
+      animation: floatBlob1 25s ease-in-out infinite alternate;
+    }
+
+    .bg-glow-blob--2 {
+      width: 45vw;
+      height: 45vw;
+      bottom: -15vw;
+      left: -10vw;
+      background: radial-gradient(circle, #858dff 0%, transparent 70%);
+      animation: floatBlob2 30s ease-in-out infinite alternate;
+    }
+
+    .bg-glow-blob--3 {
+      width: 35vw;
+      height: 35vw;
+      top: 30vh;
+      left: 25vw;
+      background: radial-gradient(circle, #dd82ff 0%, transparent 70%);
+      animation: floatBlob3 20s ease-in-out infinite alternate;
+    }
+
+    @keyframes floatBlob1 {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-8%, 12%) scale(1.1); }
+      100% { transform: translate(5%, -5%) scale(0.95); }
+    }
+
+    @keyframes floatBlob2 {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(12%, -8%) scale(0.9); }
+      100% { transform: translate(-5%, 5%) scale(1.05); }
+    }
+
+    @keyframes floatBlob3 {
+      0% { transform: translate(0, 0) scale(0.9); }
+      50% { transform: translate(-10%, -10%) scale(1.1); }
+      100% { transform: translate(8%, 8%) scale(1); }
+    }
+
+    .premium-sidebar {
+      margin: 12px 0 12px 12px;
+      height: calc(100% - 24px) !important;
+      border: 1px solid var(--line) !important;
+      border-radius: 22px;
+      background: rgba(15, 18, 16, .78) !important;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .34);
+      backdrop-filter: blur(24px);
+      overflow: hidden;
+    }
+
+    .premium-sidebar .sidebar-brand {
+      height: 74px;
+      border-color: var(--line);
+    }
+
+    .brand-mark {
+      position: relative;
+      background: var(--lime) !important;
+      border-radius: 13px !important;
+      box-shadow: 0 0 0 5px rgba(223, 255, 98, .07), 0 10px 30px rgba(223, 255, 98, .14);
+      transform: rotate(-3deg);
+      transition: transform .5s var(--ease-out);
+    }
+
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      top: 6px;
+      right: 6px;
+      background: #0a0d0b;
+      border-radius: 50%;
+    }
+
+    .sidebar-brand button:hover .brand-mark { transform: rotate(4deg) scale(1.06); }
+    .premium-sidebar button { border: 1px solid transparent; }
+
+    .premium-sidebar button[aria-current="page"] {
+      background: linear-gradient(100deg, rgba(223,255,98,.14), rgba(223,255,98,.035)) !important;
+      border-color: rgba(223,255,98,.16);
+      box-shadow: inset 3px 0 var(--lime);
+    }
+
+    .premium-topbar {
+      height: 72px !important;
+      margin: 12px 16px 0;
+      padding: 0 8px 0 18px !important;
+      border: 1px solid var(--line) !important;
+      border-radius: 18px;
+      background: rgba(15, 18, 16, .68) !important;
+      backdrop-filter: blur(22px);
+      box-shadow: 0 20px 60px rgba(0,0,0,.18);
+    }
+
+    .search-shell {
+      background: rgba(255, 255, 255, .035) !important;
+      border-color: var(--line) !important;
+      border-radius: 13px !important;
+      transition: border-color .25s ease, background .25s ease, box-shadow .25s ease;
+    }
+
+    .search-shell:focus-within {
+      border-color: rgba(223,255,98,.5) !important;
+      background: rgba(223,255,98,.045) !important;
+      box-shadow: 0 0 0 4px rgba(223,255,98,.06);
+    }
+
+    .workspace-main { padding: 28px 24px 24px !important; }
+
+    .dashboard-hero {
+      position: relative;
+      margin-bottom: 26px !important;
+      padding: 26px 28px;
+      min-height: 154px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 88% 20%, rgba(223, 255, 98, .15), transparent 25%),
+        linear-gradient(125deg, rgba(255,255,255,.055), rgba(255,255,255,.012));
+      overflow: hidden;
+      box-shadow: 0 24px 70px rgba(0,0,0,.2);
+    }
+
+    .dashboard-hero::after {
+      content: "LM / 01";
+      position: absolute;
+      right: 24px;
+      bottom: 16px;
+      color: rgba(244,242,233,.2);
+      font: 500 10px/1 'DM Mono', monospace;
+      letter-spacing: .24em;
+    }
+
+    .dashboard-hero h1 {
+      max-width: 650px;
+      font-size: clamp(1.8rem, 3vw, 3.25rem) !important;
+      line-height: .98;
+      letter-spacing: -.06em;
+    }
+
+    .dashboard-hero p { margin-top: 14px; }
+
+    .hero-kicker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--lime);
+      font: 500 9px/1 'DM Mono', monospace;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    .hero-kicker::before {
+      content: "";
+      width: 24px;
+      height: 1px;
+      background: var(--lime);
+    }
+
+    .stat-grid { gap: 12px !important; }
+
+    .stat-card {
+      position: relative;
+      min-height: 118px;
+      padding: 18px !important;
+      border-color: var(--line) !important;
+      border-radius: 18px !important;
+      background: linear-gradient(145deg, rgba(255,255,255,.052), rgba(255,255,255,.018)) !important;
+      overflow: hidden;
+      transition: transform .45s var(--ease-out), border-color .35s ease, background .35s ease;
+    }
+
+    .stat-card::after {
+      content: "";
+      position: absolute;
+      width: 56px;
+      height: 56px;
+      right: -22px;
+      bottom: -24px;
+      border: 1px solid rgba(223,255,98,.2);
+      border-radius: 50%;
+      box-shadow: 0 0 0 14px rgba(223,255,98,.025);
+    }
+
+    .stat-card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(223,255,98,.25) !important;
+      background: linear-gradient(145deg, rgba(223,255,98,.075), rgba(255,255,255,.018)) !important;
+    }
+
+    .stat-card > p:first-child {
+      font: 500 9px/1.2 'DM Mono', monospace;
+      letter-spacing: .13em !important;
+    }
+
+    .stat-card > p:nth-child(2) {
+      margin-top: 12px !important;
+      font-size: 2rem !important;
+      letter-spacing: -.05em;
+    }
+
+    .task-card {
+      border: 1px solid var(--line) !important;
+      border-radius: 18px !important;
+      background: linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.018)) !important;
+      box-shadow: 0 12px 36px rgba(0,0,0,.08);
+    }
+
+    .task-card::before {
+      top: 0;
+      bottom: auto;
+      height: 100%;
+      background: linear-gradient(90deg, rgba(223,255,98,.045), transparent 45%);
+    }
+
+    .task-card:hover {
+      transform: translateY(-4px) !important;
+      border-color: rgba(223,255,98,.28) !important;
+      box-shadow: 0 22px 58px rgba(0,0,0,.26), 0 0 0 1px rgba(223,255,98,.035);
+    }
+
+    .insights-panel {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255,255,255,.018);
+    }
+
+    .insights-panel > div > div {
+      background: rgba(255,255,255,.035) !important;
+      border-color: var(--line) !important;
+      border-radius: 16px !important;
+    }
+
+    .voldog-btn {
+      border: 1px solid var(--lime) !important;
+      background: var(--lime) !important;
+      color: #0a0d0b !important;
+      box-shadow: 0 10px 30px rgba(223,255,98,.1);
+      transition: transform .3s var(--ease-out), box-shadow .3s ease, color .3s ease !important;
+    }
+
+    .voldog-btn::after { background: #f4f2e9 !important; }
+    .voldog-btn:hover {
+      color: #090b0a !important;
+      transform: translateY(-2px);
+      box-shadow: 0 14px 38px rgba(223,255,98,.18);
+    }
+
+    .voldog-btn-secondary {
+      border: 1px solid var(--line) !important;
+      background: rgba(255,255,255,.035) !important;
+      color: var(--ivory) !important;
+    }
+
+    .voldog-btn-secondary::after { background: var(--lime) !important; }
+    .voldog-btn-secondary:hover { color: #090b0a !important; border-color: var(--lime) !important; }
+
+    .kanban-view > .grid > div {
+      border-color: var(--line) !important;
+      border-radius: 20px !important;
+      background: rgba(255,255,255,.022) !important;
+      box-shadow: inset 0 1px rgba(255,255,255,.025);
+    }
+
+    .chat-user {
+      background: var(--lime) !important;
+      color: #090b0a !important;
+      box-shadow: 0 12px 32px rgba(223,255,98,.08);
+    }
+
+    .chat-ai {
+      background: rgba(255,255,255,.045) !important;
+      color: var(--ivory) !important;
+      border-color: var(--line) !important;
+    }
+
+    input, textarea, select {
+      color-scheme: dark;
+      background: rgba(255,255,255,.035);
+      border-color: var(--line);
+      color: var(--ivory);
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: rgba(223,255,98,.55) !important;
+      box-shadow: 0 0 0 4px rgba(223,255,98,.055);
+    }
+
+    input::placeholder, textarea::placeholder { color: #69726a; }
+
+    [role="dialog"] {
+      border-color: rgba(244,242,233,.14) !important;
+      background:
+        radial-gradient(circle at 90% 0, rgba(223,255,98,.08), transparent 28%),
+        #151815 !important;
+      box-shadow: 0 40px 120px rgba(0,0,0,.65) !important;
+      animation: modalIn .45s var(--ease-out);
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(18px) scale(.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .view-enter { animation: premiumViewIn .55s var(--ease-out) both; }
+    @keyframes premiumViewIn {
+      from { opacity: 0; transform: translateY(18px); filter: blur(5px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    .focus-shell {
+      background:
+        radial-gradient(circle at 50% 35%, rgba(223,255,98,.095), transparent 32%),
+        var(--ink) !important;
+    }
+
+    .mobile-tab-bar {
+      left: 10px !important;
+      right: 10px !important;
+      bottom: 10px !important;
+      border: 1px solid var(--line) !important;
+      border-radius: 18px;
+      background: rgba(15,18,16,.9) !important;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      backdrop-filter: blur(24px);
+    }
+
+    @media (max-width: 900px) {
+      .sidebar-desktop { display: none !important; }
+      .mobile-tab-bar { display: flex !important; }
+      .premium-topbar { margin-left: 10px; margin-right: 10px; }
+      .workspace-main { padding: 20px 14px 92px !important; overflow-y: auto !important; }
+      .dashboard-view { height: auto !important; min-height: 100%; }
+      .dashboard-view > div:first-child { padding-right: 0 !important; overflow: visible !important; }
+      .stat-grid { grid-template-columns: 1fr !important; }
+    }
+
+    @media (min-width: 901px) {
+      .mobile-tab-bar { display: none !important; }
+    }
+
+    @media (max-width: 640px) {
+      .premium-topbar { height: 62px !important; }
+      .premium-topbar > div:first-child { max-width: none; }
+      .dashboard-hero {
+        padding: 22px 20px;
+        min-height: 178px;
+        align-items: flex-start !important;
+        flex-direction: column;
+      }
+      .dashboard-hero button { margin-top: 20px; width: 100%; justify-content: center; }
+      .dashboard-hero h1 { font-size: 2rem !important; }
+      .kanban-view > .grid { overflow-y: visible; }
+      .mobile-tab-bar span:last-child { font-size: 9px; }
+    }
+  </style>
+  <link rel="stylesheet" href="./kinetic.css" />
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
+</head>
+
+<body class="text-lm-text">
+  <!-- Glowing Background Blobs -->
+  <div class="bg-glow-blob bg-glow-blob--1"></div>
+  <div class="bg-glow-blob bg-glow-blob--2"></div>
+  <div class="bg-glow-blob bg-glow-blob--3"></div>
+  <div id="root"></div>
+
+  <script type="module">
+    // ===================================================================
+    // CDN IMPORTS
+    // ===================================================================
+    import React, {
+      useState, useEffect, useRef, useCallback, useMemo, memo, Fragment,
+      createContext, useContext
+    } from 'https://esm.sh/react@18.2.0';
+    import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client?deps=react@18.2.0';
+    import { create } from 'https://esm.sh/zustand@4.5.0?deps=react@18.2.0';
+    import htm from 'https://esm.sh/htm@3.1.1';
+    import { nanoid } from 'https://esm.sh/nanoid@5.0.7';
+
+    const html = htm.bind(React.createElement);
+    const e = React.createElement;
+
+    // ===================================================================
+    // CONSTANTS
+    // ===================================================================
+    const CRITICAL_THRESHOLD_MS = 60 * 60 * 1000;          // 1 hour
+    const HIGH_THRESHOLD_MS = 4 * 60 * 60 * 1000;          // 4 hours
+    const MEDIUM_THRESHOLD_MS = 24 * 60 * 60 * 1000;       // 24 hours
+    const AI_DEBOUNCE_MS = 2000;
+    const ALERT_CHECK_INTERVAL_MS = 60 * 1000;             // 1 minute
+    const RATE_LIMIT_WINDOW_MS = 60 * 1000;                // 60 seconds
+    const RATE_LIMIT_MAX_CALLS = 10;
+    const MAX_INPUT_LENGTH = 500;
+    const MAX_TITLE_LENGTH = 200;
+    const MIN_TITLE_LENGTH = 1;
+    const MAX_ESTIMATED_MINUTES = 480;
+    const MIN_ESTIMATED_MINUTES = 1;
+    const STORAGE_KEY_TASKS = 'lm_tasks';
+    const STORAGE_KEY_PROFILE = 'lm_profile';
+    const STORAGE_KEY_INSIGHTS = 'lm_insights';
+    const STORAGE_KEY_API_KEY = 'lm_api_key';
+    const STORAGE_KEY_GROQ_API_KEY = 'lm_groq_api_key';
+    const STORAGE_KEY_AI_PROVIDER = 'lm_ai_provider';
+    const STORAGE_KEY_CHAT = 'lm_chat_history';
+    const STORAGE_KEY_SCHEDULE = 'lm_schedule';
+    const STORAGE_KEY_ONBOARDED = 'lm_onboarded';
+    const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+    const CLAUDE_MODEL = 'claude-sonnet-4-6';
+    const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+    const GROQ_MODEL = 'llama-3.3-70b-versatile';
+    const CONFETTI_COLORS = ['#1E3A34', '#DDE235', '#E05A47', '#E2943B', '#F2C94C', '#6C8580'];
+    const PRIORITY_COLORS = { critical: '#E05A47', high: '#E2943B', medium: '#F2C94C', low: '#6C8580' };
+    const STATUS_LIST = ['pending', 'in_progress', 'completed', 'overdue', 'snoozed'];
+    const PRIORITY_LIST = ['critical', 'high', 'medium', 'low'];
+    const RECURRENCE_LIST = ['none', 'daily', 'weekly', 'monthly'];
+    const VIEW_NAMES = ['dashboard', 'board', 'planner', 'calendar', 'analytics'];
+    const VIEW_LABELS = { dashboard: 'Dashboard', board: 'Task Board', planner: 'AI Planner', calendar: 'Calendar', analytics: 'Analytics' };
+    const VIEW_ICONS = {
+      dashboard: '⚡', board: '📋', planner: '🤖', calendar: '📅', analytics: '📊'
+    };
+
+    // ===================================================================
+    // LOGGER (no-op in production, silent)
+    // ===================================================================
+    const Logger = {
+      _enabled: false,
+      debug() { },
+      info() { },
+      warn() { },
+      error() { },
+    };
+
+    // ===================================================================
+    // SANITIZATION
+    // ===================================================================
+    function sanitizeForPrompt(input) {
+      if (typeof input !== 'string') return '';
+      let s = input;
+      s = s.replace(/[<>]/g, '');
+      s = s.replace(/\n{3,}/g, '\n\n');
+      s = s.replace(/\r/g, '');
+      if (s.length > MAX_INPUT_LENGTH) s = s.slice(0, MAX_INPUT_LENGTH);
+      return s.trim();
+    }
+
+    // ===================================================================
+    // RATE LIMITER (ring buffer)
+    // ===================================================================
+    const rateLimiter = {
+      _timestamps: [],
+      canCall() {
+        const now = Date.now();
+        this._timestamps = this._timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+        return this._timestamps.length < RATE_LIMIT_MAX_CALLS;
+      },
+      record() {
+        this._timestamps.push(Date.now());
+      },
+      reset() {
+        this._timestamps = [];
+      },
+      getCount() {
+        const now = Date.now();
+        this._timestamps = this._timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+        return this._timestamps.length;
+      }
+    };
+
+    // ===================================================================
+    // VALIDATION
+    // ===================================================================
+    function validateTitle(title) {
+      if (typeof title !== 'string') return 'Title is required';
+      const t = title.trim();
+      if (t.length < MIN_TITLE_LENGTH) return 'Title is required';
+      if (t.length > MAX_TITLE_LENGTH) return `Title must be under ${MAX_TITLE_LENGTH} characters`;
+      return null;
+    }
+
+    function validateDeadline(deadline) {
+      if (!deadline) return 'Deadline is required';
+      const d = new Date(deadline);
+      if (isNaN(d.getTime())) return 'Invalid date format';
+      return null;
+    }
+
+    function validateEstimatedMinutes(mins) {
+      const n = parseInt(mins, 10);
+      if (isNaN(n)) return 'Estimated time is required';
+      if (n < MIN_ESTIMATED_MINUTES) return `Minimum ${MIN_ESTIMATED_MINUTES} minute`;
+      if (n > MAX_ESTIMATED_MINUTES) return `Maximum ${MAX_ESTIMATED_MINUTES} minutes (8 hours)`;
+      return null;
+    }
+
+    function validateTask(task) {
+      const errors = {};
+      const te = validateTitle(task.title);
+      if (te) errors.title = te;
+      const de = validateDeadline(task.deadline);
+      if (de) errors.deadline = de;
+      const me = validateEstimatedMinutes(task.estimatedMinutes);
+      if (me) errors.estimatedMinutes = me;
+      return Object.keys(errors).length > 0 ? errors : null;
+    }
+
+    // ===================================================================
+    // DEADLINE UTILITIES
+    // ===================================================================
+    function getDeadlineStatus(deadlineISO) {
+      const now = Date.now();
+      const deadline = new Date(deadlineISO).getTime();
+      const remaining = deadline - now;
+      if (remaining <= 0) return 'overdue';
+      if (remaining <= CRITICAL_THRESHOLD_MS) return 'critical';
+      if (remaining <= HIGH_THRESHOLD_MS) return 'high';
+      if (remaining <= MEDIUM_THRESHOLD_MS) return 'medium';
+      return 'safe';
+    }
+
+    function getTimeRemaining(deadlineISO) {
+      const now = Date.now();
+      const deadline = new Date(deadlineISO).getTime();
+      const remaining = deadline - now;
+      if (remaining <= 0) return 'Overdue';
+      const mins = Math.floor(remaining / 60000);
+      if (mins < 60) return `${mins}m left`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ${mins % 60}m left`;
+      const days = Math.floor(hrs / 24);
+      return `${days}d ${hrs % 24}h left`;
+    }
+
+    function getNextRecurrenceDate(task) {
+      const base = task.completedAt ? new Date(task.completedAt) : new Date(task.deadline);
+      const next = new Date(base);
+      switch (task.recurrence) {
+        case 'daily': next.setDate(next.getDate() + 1); break;
+        case 'weekly': next.setDate(next.getDate() + 7); break;
+        case 'monthly': next.setMonth(next.getMonth() + 1); break;
+        default: return null;
+      }
+      return next.toISOString();
+    }
+
+    function formatDateTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function formatTime(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // ===================================================================
+    // DEMO DATA
+    // ===================================================================
+    function createDemoTasks() {
+      const now = Date.now();
+      return [
+        {
+          id: nanoid(), title: 'Finalize Q3 Budget Proposal', description: 'Review all department allocations and submit final numbers to finance team',
+          deadline: new Date(now + 45 * 60000).toISOString(), estimatedMinutes: 90, priority: 'critical',
+          status: 'in_progress', tags: ['finance', 'urgent'], recurrence: 'none', aiScore: 95,
+          subtasks: [
+            { id: nanoid(), title: 'Review marketing budget', completed: true },
+            { id: nanoid(), title: 'Verify engineering costs', completed: false },
+            { id: nanoid(), title: 'Submit to CFO', completed: false }
+          ],
+          createdAt: new Date(now - 86400000).toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: null, snoozedUntil: null, notes: 'Need sign-off from department heads'
+        },
+        {
+          id: nanoid(), title: 'Prepare Client Presentation', description: 'Create slides for Thursday client meeting on project progress',
+          deadline: new Date(now + 3 * 3600000).toISOString(), estimatedMinutes: 120, priority: 'high',
+          status: 'pending', tags: ['client', 'presentation'], recurrence: 'none', aiScore: 78,
+          subtasks: [
+            { id: nanoid(), title: 'Outline key metrics', completed: false },
+            { id: nanoid(), title: 'Design slide deck', completed: false }
+          ],
+          createdAt: new Date(now - 172800000).toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: null, snoozedUntil: null, notes: ''
+        },
+        {
+          id: nanoid(), title: 'Review Pull Requests', description: 'Go through open PRs in the main repository and leave feedback',
+          deadline: new Date(now + 24 * 3600000).toISOString(), estimatedMinutes: 45, priority: 'medium',
+          status: 'pending', tags: ['code-review', 'engineering'], recurrence: 'daily', aiScore: 55,
+          subtasks: [],
+          createdAt: new Date(now - 3600000).toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: null, snoozedUntil: null, notes: 'Focus on frontend PRs first'
+        },
+        {
+          id: nanoid(), title: 'Update Team Wiki Documentation', description: 'Document new onboarding process and API changes from last sprint',
+          deadline: new Date(now + 3 * 86400000).toISOString(), estimatedMinutes: 60, priority: 'low',
+          status: 'pending', tags: ['documentation'], recurrence: 'none', aiScore: 30,
+          subtasks: [
+            { id: nanoid(), title: 'Write onboarding guide', completed: false },
+            { id: nanoid(), title: 'Update API docs', completed: false }
+          ],
+          createdAt: new Date(now - 432000000).toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: null, snoozedUntil: null, notes: ''
+        },
+        {
+          id: nanoid(), title: 'Weekly Team Standup Notes', description: 'Compile action items and blockers from this week\'s standups',
+          deadline: new Date(now + 5 * 86400000).toISOString(), estimatedMinutes: 30, priority: 'medium',
+          status: 'completed', tags: ['team', 'recurring'], recurrence: 'weekly', aiScore: 40,
+          subtasks: [],
+          createdAt: new Date(now - 604800000).toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: new Date(now - 3600000).toISOString(), snoozedUntil: null, notes: 'Shared in #team-updates'
+        }
+      ];
+    }
+
+    function createDefaultProfile() {
+      return {
+        name: 'User',
+        workingHours: { start: '09:00', end: '17:00' },
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        productivityPeak: 'morning',
+        streakDays: 1,
+        totalCompleted: 1,
+        missedDeadlines: 0,
+      };
+    }
+
+    // ===================================================================
+    // STORAGE HELPERS
+    // ===================================================================
+    function loadFromStorage(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch { return fallback; }
+    }
+
+    function saveToStorage(key, data) {
+      try { localStorage.setItem(key, JSON.stringify(data)); } catch { }
+    }
+
+    // ===================================================================
+    // AI RESPONSE PARSER
+    // ===================================================================
+    function parseAIResponse(raw) {
+      if (!raw || typeof raw !== 'string') return null;
+      let cleaned = raw.trim();
+      // Strip markdown code fences
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      cleaned = cleaned.trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        // Try to extract JSON from the response
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) {
+          try { return JSON.parse(match[0]); } catch { return null; }
+        }
+        return null;
+      }
+    }
+
+    function parseActionTags(text) {
+      const actions = [];
+      const actionRegex = /<action>([\s\S]*?)<\/action>/g;
+      let match;
+      while ((match = actionRegex.exec(text)) !== null) {
+        try {
+          actions.push(JSON.parse(match[1]));
+        } catch { }
+      }
+      const displayText = text.replace(/<action>[\s\S]*?<\/action>/g, '').trim();
+      return { actions, displayText };
+    }
+
+    // ===================================================================
+    // ZUSTAND STORE
+    // ===================================================================
+    const useStore = create((set, get) => ({
+      // -- State --
+      tasks: loadFromStorage(STORAGE_KEY_TASKS, null) || createDemoTasks(),
+      profile: loadFromStorage(STORAGE_KEY_PROFILE, null) || createDefaultProfile(),
+      insights: loadFromStorage(STORAGE_KEY_INSIGHTS, []),
+      schedule: loadFromStorage(STORAGE_KEY_SCHEDULE, []),
+      chatHistory: loadFromStorage(STORAGE_KEY_CHAT, []),
+      currentView: 'dashboard',
+      previousView: null,
+      sidebarExpanded: window.innerWidth > 768,
+      settingsOpen: false,
+      apiKey: localStorage.getItem(STORAGE_KEY_API_KEY) || '',
+      groqApiKey: localStorage.getItem(STORAGE_KEY_GROQ_API_KEY) || '',
+      aiProvider: (localStorage.getItem(STORAGE_KEY_AI_PROVIDER) === 'anthropic' && localStorage.getItem(STORAGE_KEY_API_KEY)) ? 'anthropic' : 'groq',
+      toasts: [],
+      alerts: [],
+      aiLoading: false,
+      searchQuery: '',
+      onboarded: loadFromStorage(STORAGE_KEY_ONBOARDED, false),
+      voiceEnabled: true,
+      calendarView: 'week',
+      focusMode: false,
+
+      setFocusMode(val) { set({ focusMode: val }); },
+
+      // -- Persistence --
+      _persist() {
+        const s = get();
+        saveToStorage(STORAGE_KEY_TASKS, s.tasks);
+        saveToStorage(STORAGE_KEY_PROFILE, s.profile);
+        saveToStorage(STORAGE_KEY_INSIGHTS, s.insights);
+        saveToStorage(STORAGE_KEY_SCHEDULE, s.schedule);
+        saveToStorage(STORAGE_KEY_CHAT, s.chatHistory);
+        saveToStorage(STORAGE_KEY_ONBOARDED, s.onboarded);
+        saveToStorage(STORAGE_KEY_AI_PROVIDER, s.aiProvider);
+      },
+
+      // -- Tasks --
+      addTask(task) {
+        const newTask = {
+          id: nanoid(), title: '', description: '', deadline: '', estimatedMinutes: 30,
+          priority: 'medium', status: 'pending', tags: [], recurrence: 'none', aiScore: 0,
+          subtasks: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          completedAt: null, snoozedUntil: null, notes: '', ...task,
+          id: task.id || nanoid(),
+        };
+        set(s => ({ tasks: [...s.tasks, newTask] }));
+        get()._persist();
+        return newTask;
+      },
+
+      updateTask(id, updates) {
+        set(s => ({
+          tasks: s.tasks.map(t => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t)
+        }));
+        get()._persist();
+      },
+
+      deleteTask(id) {
+        set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }));
+        get()._persist();
+      },
+
+      completeTask(id) {
+        const task = get().tasks.find(t => t.id === id);
+        if (!task) return;
+        const now = new Date().toISOString();
+        set(s => ({
+          tasks: s.tasks.map(t => t.id === id ? { ...t, status: 'completed', completedAt: now, updatedAt: now } : t),
+          profile: { ...s.profile, totalCompleted: s.profile.totalCompleted + 1 }
+        }));
+        // Handle recurrence
+        if (task.recurrence !== 'none') {
+          const nextDeadline = getNextRecurrenceDate({ ...task, completedAt: now });
+          if (nextDeadline) {
+            get().addTask({
+              ...task, id: nanoid(), status: 'pending', completedAt: null,
+              deadline: nextDeadline, createdAt: now, updatedAt: now
+            });
+          }
+        }
+        get()._persist();
+      },
+
+      toggleSubtask(taskId, subtaskId) {
+        set(s => ({
+          tasks: s.tasks.map(t => t.id === taskId ? {
+            ...t,
+            subtasks: t.subtasks.map(st => st.id === subtaskId ? { ...st, completed: !st.completed } : st),
+            updatedAt: new Date().toISOString()
+          } : t)
+        }));
+        get()._persist();
+      },
+
+      // -- Navigation --
+      setView(view) {
+        set(s => ({ currentView: view, previousView: s.currentView }));
+      },
+      toggleSidebar() { set(s => ({ sidebarExpanded: !s.sidebarExpanded })); },
+      setSettingsOpen(open) { set({ settingsOpen: open }); },
+      setSearchQuery(q) { set({ searchQuery: q }); },
+
+      // -- API Key --
+      setApiKey(key) {
+        localStorage.setItem(STORAGE_KEY_API_KEY, key);
+        set({ apiKey: key });
+      },
+      setGroqApiKey(key) {
+        localStorage.setItem(STORAGE_KEY_GROQ_API_KEY, key);
+        set({ groqApiKey: key });
+      },
+      setAiProvider(provider) {
+        localStorage.setItem(STORAGE_KEY_AI_PROVIDER, provider);
+        set({ aiProvider: provider });
+      },
+
+      // -- AI --
+      setInsights(insights) {
+        set({ insights });
+        get()._persist();
+      },
+      addInsight(insight) {
+        set(s => ({ insights: [{ ...insight, id: nanoid(), createdAt: new Date().toISOString(), dismissed: false }, ...s.insights].slice(0, 20) }));
+        get()._persist();
+      },
+      dismissInsight(id) {
+        set(s => ({ insights: s.insights.map(i => i.id === id ? { ...i, dismissed: true } : i) }));
+        get()._persist();
+      },
+      setSchedule(schedule) {
+        set({ schedule });
+        get()._persist();
+      },
+      setAiLoading(loading) { set({ aiLoading: loading }); },
+
+      // -- Chat --
+      addChatMessage(msg) {
+        set(s => ({ chatHistory: [...s.chatHistory, { ...msg, id: nanoid(), timestamp: new Date().toISOString() }] }));
+        get()._persist();
+      },
+      clearChat() {
+        set({ chatHistory: [] });
+        get()._persist();
+      },
+
+      // -- Toasts --
+      showToast(message, type = 'info') {
+        const id = nanoid();
+        set(s => ({ toasts: [...s.toasts, { id, message, type }] }));
+        setTimeout(() => set(s => ({ toasts: s.toasts.filter(t => t.id !== id) })), 4000);
+      },
+
+      // -- Alerts --
+      setAlerts(alerts) { set({ alerts }); },
+      dismissAlert(id) { set(s => ({ alerts: s.alerts.filter(a => a.id !== id) })); },
+
+      // -- Profile --
+      updateProfile(updates) {
+        set(s => ({ profile: { ...s.profile, ...updates } }));
+        get()._persist();
+      },
+
+      setOnboarded(val) {
+        set({ onboarded: val });
+        get()._persist();
+      },
+
+      setVoiceEnabled(val) { set({ voiceEnabled: val }); },
+      setCalendarView(v) { set({ calendarView: v }); },
+    }));
+
+    // ===================================================================
+    // AI SERVICE
+    // ===================================================================
+    let aiDebounceTimer = null;
+
+    async function callClaudeAPI(messages, systemPrompt) {
+      const apiKey = useStore.getState().apiKey;
+      if (!apiKey) {
+        useStore.getState().showToast('Please set your API key in Settings', 'warning');
+        return null;
+      }
+      if (!rateLimiter.canCall()) {
+        useStore.getState().showToast('Rate limit reached. Please wait a moment.', 'warning');
+        return null;
+      }
+      rateLimiter.record();
+
+      try {
+        const response = await fetch(CLAUDE_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: CLAUDE_MODEL,
+            max_tokens: 2048,
+            system: systemPrompt,
+            messages,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          throw new Error(`API error ${response.status}: ${err.slice(0, 200)}`);
+        }
+
+        const data = await response.json();
+        return data.content?.[0]?.text || null;
+      } catch (err) {
+        useStore.getState().showToast('AI request failed. Check your API key.', 'error');
+        return null;
+      }
+    }
+
+    async function callGroqAPI(messages, systemPrompt, isJson = false) {
+      const apiKey = useStore.getState().groqApiKey;
+      if (!apiKey) {
+        useStore.getState().showToast('Please set your Groq API key in Settings', 'warning');
+        return null;
+      }
+      if (!rateLimiter.canCall()) {
+        useStore.getState().showToast('Rate limit reached. Please wait a moment.', 'warning');
+        return null;
+      }
+      rateLimiter.record();
+
+      try {
+        const fullMessages = [
+          { role: 'system', content: systemPrompt },
+          ...messages
+        ];
+
+        const bodyData = {
+          model: GROQ_MODEL,
+          max_tokens: 2048,
+          messages: fullMessages,
+          temperature: 0.1
+        };
+
+        if (isJson) {
+          bodyData.response_format = { type: 'json_object' };
+        }
+
+        const response = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(bodyData),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          throw new Error(`API error ${response.status}: ${err.slice(0, 200)}`);
+        }
+
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || null;
+      } catch (err) {
+        useStore.getState().showToast('Groq AI request failed. Check your API key.', 'error');
+        return null;
+      }
+    }
+
+    async function callAIService(messages, systemPrompt, isJson = false) {
+      const { aiProvider } = useStore.getState();
+      if (aiProvider === 'groq') {
+        return await callGroqAPI(messages, systemPrompt, isJson);
+      } else {
+        return await callClaudeAPI(messages, systemPrompt);
+      }
+    }
+
+    function buildPrioritizationPrompt() {
+      const { tasks, profile } = useStore.getState();
+      const activeTasks = tasks.filter(t => t.status !== 'completed');
+      const tasksJson = JSON.stringify(activeTasks.map(t => ({
+        id: t.id, title: sanitizeForPrompt(t.title), deadline: t.deadline,
+        estimatedMinutes: t.estimatedMinutes, priority: t.priority,
+        status: t.status, tags: t.tags, recurrence: t.recurrence
+      })));
+      const profileJson = JSON.stringify({
+        workingHours: profile.workingHours,
+        productivityPeak: profile.productivityPeak,
+        timezone: profile.timezone
+      });
+
+      return `You are a productivity AI for LastMinute. Return ONLY valid JSON, no prose, no markdown fences.
+
+Prioritize tasks using: (0.4 × deadline_urgency) + (0.3 × user_impact) + (0.2 × effort_fit) + (0.1 × recency).
+Flag any task where time_remaining_minutes < estimatedMinutes × 1.5.
+
+User profile: ${profileJson}
+Current time (ISO): ${new Date().toISOString()}
+Tasks: ${tasksJson}
+
+Return exactly:
+{
+  "rankedTaskIds": ["id1","id2"],
+  "scores": {"id1": 92, "id2": 45},
+  "urgencyFlags": {"id1": true},
+  "insights": [
+    {"type": "risk_alert", "message": "...", "actionLabel": "Start Now", "actionPayload": {"taskId": "id1", "action": "start"}}
+  ],
+  "recommendedSchedule": [
+    {"taskId": "id1", "startTime": "2025-06-26T09:00:00Z", "endTime": "2025-06-26T11:00:00Z"}
+  ]
+}`;
+    }
+
+    async function runAIPrioritization() {
+      const state = useStore.getState();
+      if (state.aiLoading) return;
+      const hasKey = state.aiProvider === 'groq' ? !!state.groqApiKey : !!state.apiKey;
+      if (!hasKey) return;
+      const activeTasks = state.tasks.filter(t => t.status !== 'completed');
+      if (activeTasks.length === 0) return;
+
+      state.setAiLoading(true);
+      try {
+        const systemPrompt = buildPrioritizationPrompt();
+        const result = await callAIService(
+          [{ role: 'user', content: 'Analyze and prioritize my current tasks.' }],
+          systemPrompt,
+          true
+        );
+        if (!result) { state.setAiLoading(false); return; }
+
+        const parsed = parseAIResponse(result);
+        if (!parsed) {
+          // Fallback: sort by deadline
+          const sorted = [...activeTasks].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+          sorted.forEach((t, i) => state.updateTask(t.id, { aiScore: Math.max(0, 100 - i * 15) }));
+          state.setAiLoading(false);
+          return;
+        }
+
+        // Apply scores
+        if (parsed.scores) {
+          Object.entries(parsed.scores).forEach(([id, score]) => {
+            if (state.tasks.find(t => t.id === id)) {
+              state.updateTask(id, { aiScore: Math.min(100, Math.max(0, score)) });
+            }
+          });
+        }
+
+        // Apply insights
+        if (Array.isArray(parsed.insights)) {
+          const newInsights = parsed.insights.map(i => ({
+            id: nanoid(), type: i.type || 'risk_alert', message: i.message || '',
+            actionLabel: i.actionLabel || '', actionPayload: i.actionPayload || null,
+            createdAt: new Date().toISOString(), dismissed: false
+          }));
+          state.setInsights(newInsights);
+        }
+
+        // Apply schedule
+        if (Array.isArray(parsed.recommendedSchedule)) {
+          state.setSchedule(parsed.recommendedSchedule);
+        }
+      } catch { }
+      state.setAiLoading(false);
+    }
+
+    function debouncedAIPrioritization() {
+      if (aiDebounceTimer) clearTimeout(aiDebounceTimer);
+      aiDebounceTimer = setTimeout(runAIPrioritization, AI_DEBOUNCE_MS);
+    }
+
+    // ===================================================================
+    // PROACTIVE ALERT CHECKER
+    // ===================================================================
+    function checkAlerts() {
+      const { tasks, setAlerts, updateTask } = useStore.getState();
+      const now = Date.now();
+      const newAlerts = [];
+      let stateChanged = false;
+
+      tasks.forEach(task => {
+        if (task.status === 'completed' || task.status === 'snoozed') return;
+        const deadline = new Date(task.deadline).getTime();
+        const remaining = deadline - now;
+
+        // Auto-flip overdue
+        if (remaining <= 0 && task.status !== 'overdue') {
+          updateTask(task.id, { status: 'overdue' });
+          stateChanged = true;
+        }
+
+        if (remaining > 0 && remaining <= CRITICAL_THRESHOLD_MS) {
+          newAlerts.push({
+            id: `alert-${task.id}`, taskId: task.id, level: 'critical',
+            message: `"${task.title}" is due in ${getTimeRemaining(task.deadline)}!`,
+            autoDismiss: false
+          });
+        } else if (remaining > 0 && remaining <= HIGH_THRESHOLD_MS) {
+          newAlerts.push({
+            id: `alert-${task.id}`, taskId: task.id, level: 'high',
+            message: `"${task.title}" — ${getTimeRemaining(task.deadline)}`,
+            autoDismiss: 30000
+          });
+        } else if (remaining > 0 && remaining <= MEDIUM_THRESHOLD_MS) {
+          newAlerts.push({
+            id: `alert-${task.id}`, taskId: task.id, level: 'medium',
+            message: `"${task.title}" — ${getTimeRemaining(task.deadline)}`,
+            autoDismiss: 10000
+          });
+        }
+      });
+
+      setAlerts(newAlerts);
+      if (stateChanged) debouncedAIPrioritization();
+    }
+
+    // ===================================================================
+    // VOICE SERVICE
+    // ===================================================================
+    const VoiceService = {
+      recognition: null,
+      synthesis: window.speechSynthesis || null,
+      available: false,
+
+      init() {
+        try {
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (SpeechRecognition) {
+            this.recognition = new SpeechRecognition();
+            this.recognition.continuous = false;
+            this.recognition.interimResults = false;
+            this.recognition.lang = 'en-US';
+            this.available = true;
+          }
+        } catch { this.available = false; }
+      },
+
+      listen(onResult, onEnd) {
+        if (!this.available || !this.recognition) {
+          useStore.getState().showToast('Voice unavailable, please type', 'warning');
+          return false;
+        }
+        this.recognition.onresult = (event) => {
+          const text = event.results[0][0].transcript;
+          onResult(text);
+        };
+        this.recognition.onend = () => onEnd?.();
+        this.recognition.onerror = () => onEnd?.();
+        try {
+          this.recognition.start();
+          return true;
+        } catch {
+          onEnd?.();
+          return false;
+        }
+      },
+
+      stopListening() {
+        try { this.recognition?.stop(); } catch { }
+      },
+
+      speak(text) {
+        if (!this.synthesis || !useStore.getState().voiceEnabled) return;
+        try {
+          this.synthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          this.synthesis.speak(utterance);
+        } catch { }
+      }
+    };
+
+    VoiceService.init();
+
+    // ===================================================================
+    // CONFETTI HELPER
+    // ===================================================================
+    function spawnConfetti(container) {
+      if (!container) return;
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (prefersReduced) return;
+      for (let i = 0; i < 20; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = `${Math.random() * 100}%`;
+        piece.style.top = `${Math.random() * 30}%`;
+        piece.style.backgroundColor = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        piece.style.animationDelay = `${Math.random() * 0.3}s`;
+        container.appendChild(piece);
+        setTimeout(() => piece.remove(), 1500);
+      }
+    }
+
+    // ===================================================================
+    // ERROR BOUNDARY
+    // ===================================================================
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false };
+      }
+      static getDerivedStateFromError() { return { hasError: true }; }
+      componentDidCatch() { }
+      render() {
+        if (this.state.hasError) {
+          return html`<div className="flex flex-col items-center justify-center p-8 bg-lm-card rounded-2xl border border-lm-border shadow-xl max-w-md mx-auto my-12">
+        <div className="text-4xl mb-4">🛡️</div>
+        <h3 className="text-lg font-heading font-semibold mb-2">Something went wrong</h3>
+        <p className="text-lm-muted text-xs text-center mb-6">Your tasks are safe. Try reloading.</p>
+        <button onClick=${() => window.location.reload()} className="voldog-btn px-6 py-2 rounded-xl text-sm" aria-label="Reload application">
+          <span>Reload App</span>
+        </button>
+      </div>`;
+        }
+        return this.props.children;
+      }
+    }
+
+    // ===================================================================
+    // COMPONENTS
+    // ===================================================================
+
+    // -- Urgency Pulse Ring --
+    function UrgencyRing({ deadline, size = 40 }) {
+      const status = getDeadlineStatus(deadline);
+      const now = Date.now();
+      const dl = new Date(deadline).getTime();
+      const total = dl - (dl - 86400000 * 7);
+      const remaining = Math.max(0, dl - now);
+      const progress = Math.min(1, remaining / (86400000 * 7));
+      const radius = (size - 4) / 2;
+      const circumference = 2 * Math.PI * radius;
+      const offset = circumference * (1 - progress);
+
+      const color = status === 'critical' || status === 'overdue' ? '#E05A47'
+        : status === 'high' ? '#E2943B'
+          : status === 'medium' ? '#F2C94C' : '#6C8580';
+
+      const pulseClass = status === 'critical' ? 'pulse-ring-critical' : '';
+
+      return html`<svg width=${size} height=${size} className=${pulseClass} aria-label="Deadline urgency indicator">
+    <circle cx=${size / 2} cy=${size / 2} r=${radius} fill="none" stroke="#E6E5DC" strokeWidth="2.5" />
+    <circle cx=${size / 2} cy=${size / 2} r=${radius} fill="none" stroke=${color} strokeWidth="3"
+      strokeDasharray=${circumference} strokeDashoffset=${offset}
+      strokeLinecap="round" transform=${`rotate(-90 ${size / 2} ${size / 2})`}
+      style=${{ transition: 'stroke-dashoffset 500ms ease' }} />
+  </svg>`;
+    }
+
+    // -- Toast Container --
+    function ToastContainer() {
+      const toasts = useStore(s => s.toasts);
+      const colors = { info: 'border-lm-primary', warning: 'border-yellow-500', error: 'border-lm-critical', success: 'border-lm-completed' };
+      return html`<div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2" role="alert" aria-live="polite">
+    ${toasts.map(t => html`<div key=${t.id} className="toast-enter bg-lm-card border-l-4 ${colors[t.type] || colors.info} border-lm-border rounded-lg px-4 py-3 shadow-xl max-w-xs">
+      <p className="text-sm font-medium">${t.message}</p>
+    </div>`)}
+  </div>`;
+    }
+
+    // -- Alert Banners --
+    function AlertBanners() {
+      const alerts = useStore(s => s.alerts);
+      const dismissAlert = useStore(s => s.dismissAlert);
+
+      useEffect(() => {
+        alerts.forEach(a => {
+          if (a.autoDismiss) {
+            setTimeout(() => dismissAlert(a.id), a.autoDismiss);
+          }
+        });
+      }, [alerts]);
+
+      if (alerts.length === 0) return null;
+
+      return html`<div className="flex flex-col gap-1.5 mb-3">
+    ${alerts.slice(0, 3).map(a => {
+        const borderClass = a.level === 'critical' ? 'alert-critical border-[#E05A47] bg-red-50 text-[#E05A47]'
+          : a.level === 'high' ? 'border-[#E2943B] bg-orange-50 text-[#E2943B]'
+            : 'border-lm-border bg-lm-surface text-lm-text';
+        const icon = a.level === 'critical' ? '🔴' : a.level === 'high' ? '🟠' : '🟡';
+        return html`<div key=${a.id} className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border ${borderClass}" role="alert">
+        <span className="text-sm">${icon}</span>
+        <span className="text-xs font-semibold flex-1">${a.message}</span>
+        <button onClick=${() => dismissAlert(a.id)} className="text-lm-muted hover:text-lm-text text-lg font-bold" aria-label="Dismiss alert">×</button>
+      </div>`;
+      })}
+  </div>`;
+    }
+
+    // -- Voice Button --
+    function VoiceButton({ onResult, className = '' }) {
+      const [listening, setListening] = useState(false);
+
+      const handleClick = useCallback(() => {
+        if (listening) {
+          VoiceService.stopListening();
+          setListening(false);
+          return;
+        }
+        const started = VoiceService.listen(
+          (text) => { onResult(text); setListening(false); },
+          () => setListening(false)
+        );
+        if (started) setListening(true);
+      }, [listening, onResult]);
+
+      return html`<button onClick=${handleClick}
+    className=${`relative flex items-center justify-center w-9 h-9 rounded-lg transition-all border border-lm-border ${listening ? 'bg-lm-critical text-white' : 'bg-lm-card hover:bg-lm-cardHover'} ${className}`}
+    aria-label=${listening ? 'Stop listening' : 'Start voice input'}>
+    ${listening ? html`<div className="flex items-center gap-0.5 h-6">
+      ${[0, 1, 2, 3, 4].map(i => html`<div key=${i} className="wave-bar" style=${{ animationDelay: `${i * 0.1}s` }} />`)}
+    </div>` : html`<span className="text-sm">🎤</span>`}
+  </button>`;
+    }
+
+    // -- Shimmer Loader --
+    function ShimmerLoader({ lines = 3 }) {
+      return html`<div className="flex flex-col gap-3 p-4 bg-lm-card border border-lm-border rounded-2xl">
+    ${Array.from({ length: lines }).map((_, i) => html`<div key=${i} className="shimmer h-4 rounded" style=${{ width: `${70 + Math.random() * 30}%` }} />`)}
+  </div>`;
+    }
+
+    // -- Settings Modal --
+    function SettingsModal() {
+      const {
+        settingsOpen, setSettingsOpen, apiKey, setApiKey, groqApiKey, setGroqApiKey,
+        aiProvider, setAiProvider, profile, updateProfile, voiceEnabled, setVoiceEnabled
+      } = useStore();
+      const [providerInput, setProviderInput] = useState(aiProvider);
+      const [keyInput, setKeyInput] = useState('');
+      const [groqKeyInput, setGroqKeyInput] = useState('');
+      const [nameInput, setNameInput] = useState(profile.name);
+      const [startHour, setStartHour] = useState(profile.workingHours.start);
+      const [endHour, setEndHour] = useState(profile.workingHours.end);
+      const [peak, setPeak] = useState(profile.productivityPeak);
+
+      useEffect(() => {
+        setProviderInput(aiProvider);
+        setNameInput(profile.name);
+        setStartHour(profile.workingHours.start);
+        setEndHour(profile.workingHours.end);
+        setPeak(profile.productivityPeak);
+        setKeyInput('');
+        setGroqKeyInput('');
+      }, [settingsOpen]);
+
+      if (!settingsOpen) return null;
+
+      const maskedKey = apiKey ? '••••••••' + apiKey.slice(-4) : 'Not set';
+      const maskedGroqKey = groqApiKey ? '••••••••' + groqApiKey.slice(-4) : 'Not set';
+
+      const handleSave = () => {
+        if (keyInput.trim()) setApiKey(keyInput.trim());
+        if (groqKeyInput.trim()) setGroqApiKey(groqKeyInput.trim());
+        setAiProvider(providerInput);
+        updateProfile({
+          name: nameInput.trim() || 'User',
+          workingHours: { start: startHour, end: endHour },
+          productivityPeak: peak
+        });
+        useStore.getState().showToast('Settings saved', 'success');
+        setSettingsOpen(false);
+      };
+
+      return html`<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick=${(ev) => { if (ev.target === ev.currentTarget) setSettingsOpen(false); }}>
+    <div className="bg-lm-card border border-lm-border rounded-[24px] p-6 w-full max-w-md mx-4 shadow-2xl" role="dialog" aria-label="Settings">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="font-heading text-xl font-bold">Settings</h2>
+        <button onClick=${() => setSettingsOpen(false)} className="text-lm-muted hover:text-lm-text text-xl" aria-label="Close settings">×</button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-mono text-lm-muted block mb-1">AI Provider</label>
+          <select value=${providerInput} onChange=${ev => setProviderInput(ev.target.value)}
+            className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="AI Provider">
+            <option value="anthropic">Anthropic Claude (Paid)</option>
+            <option value="groq">Groq Llama 3 (Free Tier)</option>
+          </select>
+        </div>
+
+        ${providerInput === 'anthropic' ? html`<div>
+          <label className="text-xs font-mono text-lm-muted block mb-1">Anthropic API Key</label>
+          <p className="text-xs text-lm-muted mb-2 font-mono">${maskedKey}</p>
+          <input type="password" value=${keyInput} onChange=${ev => setKeyInput(ev.target.value)}
+            placeholder="sk-ant-..." className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Anthropic API Key" />
+        </div>` : html`<div>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-xs font-mono text-lm-muted">Groq API Key (Free)</label>
+            <a href="https://console.groq.com/" target="_blank" rel="noopener noreferrer" className="text-xs text-lm-primary hover:underline">Get key ↗</a>
+          </div>
+          <p className="text-xs text-lm-muted mb-2 font-mono">${maskedGroqKey}</p>
+          <input type="password" value=${groqKeyInput} onChange=${ev => setGroqKeyInput(ev.target.value)}
+            placeholder="gsk_..." className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Groq API Key" />
+        </div>`}
+
+        <div>
+          <label className="text-xs font-mono text-lm-muted block mb-1">Your Name</label>
+          <input type="text" value=${nameInput} onChange=${ev => setNameInput(ev.target.value)}
+            className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Name" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Work Start</label>
+            <input type="time" value=${startHour} onChange=${ev => setStartHour(ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Work start time" />
+          </div>
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Work End</label>
+            <input type="time" value=${endHour} onChange=${ev => setEndHour(ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Work end time" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-mono text-lm-muted block mb-1">Productivity Peak</label>
+          <select value=${peak} onChange=${ev => setPeak(ev.target.value)}
+            className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Productivity peak">
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+            <option value="evening">Evening</option>
+          </select>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-mono text-lm-muted">Voice Read-Aloud</label>
+          <button onClick=${() => setVoiceEnabled(!voiceEnabled)}
+            className=${`w-10 h-5.5 rounded-full transition-colors ${voiceEnabled ? 'bg-lm-primary' : 'bg-lm-border'} relative`}
+            aria-label="Toggle voice">
+            <span className=${`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform ${voiceEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-3 mt-6">
+        <button onClick=${() => setSettingsOpen(false)} className="flex-1 py-2 voldog-btn-secondary rounded-xl text-sm" aria-label="Cancel">
+          <span>Cancel</span>
+        </button>
+        <button onClick=${handleSave} className="flex-1 py-2 voldog-btn rounded-xl text-sm" aria-label="Save settings">
+          <span>Save</span>
+        </button>
+      </div>
+    </div>
+  </div>`;
+    }
+
+    // -- Task Form Modal --
+    function TaskFormModal({ task, onClose, onSave }) {
+      const isEdit = !!task;
+      const [form, setForm] = useState({
+        title: task?.title || '', description: task?.description || '',
+        deadline: task?.deadline ? task.deadline.slice(0, 16) : '',
+        estimatedMinutes: task?.estimatedMinutes || 30, priority: task?.priority || 'medium',
+        tags: task?.tags?.join(', ') || '', recurrence: task?.recurrence || 'none',
+        notes: task?.notes || '',
+      });
+      const [errors, setErrors] = useState({});
+
+      const handleSubmit = () => {
+        const deadlineISO = form.deadline ? new Date(form.deadline).toISOString() : '';
+        const taskData = {
+          title: form.title.trim(),
+          description: form.description.trim(),
+          deadline: deadlineISO,
+          estimatedMinutes: parseInt(form.estimatedMinutes, 10),
+          priority: form.priority,
+          tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+          recurrence: form.recurrence,
+          notes: form.notes.trim(),
+        };
+        const validationErrors = validateTask(taskData);
+        if (validationErrors) {
+          setErrors(validationErrors);
+          return;
+        }
+        onSave(taskData);
+        onClose();
+      };
+
+      const updateField = (field, value) => {
+        setForm(f => ({ ...f, [field]: value }));
+        setErrors(e => ({ ...e, [field]: undefined }));
+      };
+
+      return html`<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick=${ev => { if (ev.target === ev.currentTarget) onClose(); }}>
+    <div className="bg-lm-card border border-lm-border rounded-[24px] p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" role="dialog" aria-label=${isEdit ? 'Edit task' : 'Add task'}>
+      <h2 className="font-heading text-xl font-bold mb-4">${isEdit ? 'Edit Task' : 'New Task'}</h2>
+
+      <div className="space-y-3">
+        <div>
+          <input type="text" placeholder="Task title" value=${form.title}
+            onChange=${ev => updateField('title', ev.target.value)}
+            className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2.5 text-sm focus:border-lm-primary outline-none"
+            aria-label="Task title" />
+          ${errors.title ? html`<p className="text-lm-critical text-xs mt-1 font-semibold">${errors.title}</p>` : null}
+        </div>
+
+        <textarea placeholder="Description (optional)" value=${form.description}
+          onChange=${ev => updateField('description', ev.target.value)} rows="2"
+          className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2.5 text-sm focus:border-lm-primary outline-none resize-none"
+          aria-label="Task description" />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Deadline</label>
+            <input type="datetime-local" value=${form.deadline}
+              onChange=${ev => updateField('deadline', ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none"
+              aria-label="Deadline" />
+            ${errors.deadline ? html`<p className="text-lm-critical text-xs mt-1 font-semibold">${errors.deadline}</p>` : null}
+          </div>
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Est. Minutes</label>
+            <input type="number" value=${form.estimatedMinutes} min="1" max="480"
+              onChange=${ev => updateField('estimatedMinutes', ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none"
+              aria-label="Estimated minutes" />
+            ${errors.estimatedMinutes ? html`<p className="text-lm-critical text-xs mt-1 font-semibold">${errors.estimatedMinutes}</p>` : null}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Priority</label>
+            <select value=${form.priority} onChange=${ev => updateField('priority', ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Priority">
+              ${PRIORITY_LIST.map(p => html`<option key=${p} value=${p}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-mono text-lm-muted block mb-1">Recurrence</label>
+            <select value=${form.recurrence} onChange=${ev => updateField('recurrence', ev.target.value)}
+              className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none" aria-label="Recurrence">
+              ${RECURRENCE_LIST.map(r => html`<option key=${r} value=${r}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`)}
+            </select>
+          </div>
+        </div>
+
+        <input type="text" placeholder="Tags (comma separated)" value=${form.tags}
+          onChange=${ev => updateField('tags', ev.target.value)}
+          className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2 text-sm focus:border-lm-primary outline-none"
+          aria-label="Tags" />
+
+        <textarea placeholder="Notes" value=${form.notes}
+          onChange=${ev => updateField('notes', ev.target.value)} rows="2"
+          className="w-full bg-lm-card border border-lm-border rounded-xl px-3 py-2.5 text-sm focus:border-lm-primary outline-none resize-none"
+          aria-label="Notes" />
+      </div>
+
+      <div className="flex gap-3 mt-5">
+        <button onClick=${onClose} className="flex-1 py-2 voldog-btn-secondary rounded-xl text-sm" aria-label="Cancel">
+          <span>Cancel</span>
+        </button>
+        <button onClick=${handleSubmit} className="flex-1 py-2 voldog-btn rounded-xl text-sm" aria-label=${isEdit ? 'Update task' : 'Create task'}>
+          <span>${isEdit ? 'Update' : 'Create'}</span>
+        </button>
+      </div>
+    </div>
+  </div>`;
+    }
+
+    // -- Task Card --
+    function TaskCard({ task, onEdit, compact = false }) {
+      const { completeTask, deleteTask, updateTask, showToast, toggleSubtask } = useStore();
+      const cardRef = useRef(null);
+      const [showDelete, setShowDelete] = useState(false);
+      const priorityColor = PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium;
+
+      const handleComplete = (ev) => {
+        ev.stopPropagation();
+        completeTask(task.id);
+        showToast(`"${task.title}" completed! 🎉`, 'success');
+        if (cardRef.current) spawnConfetti(cardRef.current);
+        debouncedAIPrioritization();
+      };
+
+      const handleStart = (ev) => {
+        ev.stopPropagation();
+        updateTask(task.id, { status: 'in_progress' });
+        showToast(`Started: "${task.title}"`, 'info');
+        debouncedAIPrioritization();
+      };
+
+      const handleDelete = (ev) => {
+        ev.stopPropagation();
+        deleteTask(task.id);
+        showToast('Task deleted', 'info');
+      };
+
+      // Drag support
+      const handleDragStart = (ev) => {
+        ev.dataTransfer.setData('text/plain', task.id);
+        ev.dataTransfer.effectAllowed = 'move';
+      };
+
+      const statusBadge = task.status === 'completed' ? html`<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">Done</span>`
+        : task.status === 'overdue' ? html`<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-[#E05A47] border border-red-200">Overdue</span>`
+          : task.status === 'in_progress' ? html`<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-lm-primary/10 text-lm-primary border border-lm-primary/20">Active</span>`
+            : null;
+
+      if (compact) {
+        return html`<div ref=${cardRef} className="task-card relative p-3 cursor-pointer" draggable="true" onDragStart=${handleDragStart}
+      onClick=${() => onEdit?.(task)} role="article" aria-label=${`Task: ${task.title}`}>
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full flex-shrink-0" style=${{ background: priorityColor }} />
+        <span className="text-sm font-semibold flex-1 truncate">${task.title}</span>
+        ${task.status !== 'completed' ? html`<${UrgencyRing} deadline=${task.deadline} size=${28} />` : null}
+      </div>
+      <div className="flex items-center gap-2 mt-1.5 text-xs text-lm-muted">
+        <span className="font-mono font-medium">${getTimeRemaining(task.deadline)}</span>
+        ${statusBadge}
+      </div>
+    </div>`;
+      }
+
+      return html`<div ref=${cardRef} className="task-card relative p-4 cursor-pointer group"
+    draggable="true" onDragStart=${handleDragStart}
+    onClick=${() => onEdit?.(task)} role="article" aria-label=${`Task: ${task.title}`}>
+    <div className="flex items-start gap-3">
+      <${UrgencyRing} deadline=${task.deadline} size=${40} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style=${{ background: priorityColor }} />
+          <h4 className="font-bold text-sm truncate">${task.title}</h4>
+        </div>
+        ${task.description ? html`<p className="text-xs text-lm-muted mb-2 line-clamp-2 leading-relaxed">${task.description}</p>` : null}
+        <div className="flex items-center gap-3 text-xs text-lm-muted font-medium">
+          <span className="font-mono font-semibold">${getTimeRemaining(task.deadline)}</span>
+          <span>${task.estimatedMinutes}m est.</span>
+          ${statusBadge}
+        </div>
+
+        ${task.subtasks.length > 0 ? html`<div className="mt-2.5 space-y-1">
+          ${task.subtasks.map(st => html`<label key=${st.id} className="flex items-center gap-2 text-xs cursor-pointer select-none" onClick=${ev => ev.stopPropagation()}>
+            <input type="checkbox" checked=${st.completed} onChange=${() => toggleSubtask(task.id, st.id)}
+              className="w-3.5 h-3.5 rounded border border-lm-border accent-lm-primary" aria-label=${st.title} />
+            <span className=${st.completed ? 'line-through text-lm-muted' : 'text-lm-text font-medium'}>${st.title}</span>
+          </label>`)}
+        </div>` : null}
+
+        ${task.tags.length > 0 ? html`<div className="flex gap-1 mt-2.5 flex-wrap">
+          ${task.tags.map(tag => html`<span key=${tag} className="text-[10px] font-bold px-2 py-0.5 rounded bg-lm-surface text-lm-muted">${tag}</span>`)}
+        </div>` : null}
+      </div>
+
+      <div className="flex items-center gap-1 text-xs font-mono text-lm-primary font-bold">
+        ${task.aiScore > 0 ? html`<span className="bg-lm-primary/15 px-1.5 py-0.5 rounded-lg">${task.aiScore} pts</span>` : null}
+      </div>
+    </div>
+
+    <div className="flex gap-2 mt-3.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      ${task.status === 'pending' ? html`<button onClick=${handleStart}
+        className="flex-1 py-1.5 text-xs font-bold rounded-lg bg-lm-primary/10 text-lm-primary hover:bg-lm-primary/20 transition-colors" aria-label="Start task">Start</button>` : null}
+      ${task.status !== 'completed' ? html`<button onClick=${handleComplete}
+        className="flex-1 py-1.5 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-100 transition-colors" aria-label="Complete task">Complete</button>` : null}
+      <button onClick=${(ev) => { ev.stopPropagation(); setShowDelete(true); }}
+        className="py-1.5 px-3 text-xs font-bold rounded-lg bg-red-50 text-[#E05A47] hover:bg-red-100 border border-red-100 transition-colors" aria-label="Delete task">
+        ${showDelete ? html`<span onClick=${handleDelete}>Confirm?</span>` : '🗑'}
+      </button>
+    </div>
+  </div>`;
+    }
+
+    // ===================================================================
+    // DASHBOARD VIEW
+    // ===================================================================
+    function DashboardView() {
+      const { tasks, insights, profile, aiLoading, dismissInsight, showToast, updateTask, setView, searchQuery } = useStore();
+      const [addModalOpen, setAddModalOpen] = useState(false);
+      const [editTask, setEditTask] = useState(null);
+
+      const activeTasks = useMemo(() =>
+        tasks.filter(t => t.status !== 'completed')
+          .filter(t => !searchQuery.trim() || `${t.title} ${t.description || ''} ${(t.tags || []).join(' ')}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+          .sort((a, b) => (b.aiScore || 0) - (a.aiScore || 0)),
+        [tasks, searchQuery]
+      );
+      const urgentTasks = useMemo(() => activeTasks.filter(t => {
+        const s = getDeadlineStatus(t.deadline);
+        return s === 'critical' || s === 'high';
+      }), [activeTasks]);
+      const todayCompleted = useMemo(() => {
+        const today = new Date().toDateString();
+        return tasks.filter(t => t.completedAt && new Date(t.completedAt).toDateString() === today).length;
+      }, [tasks]);
+
+      const activeInsights = useMemo(() => insights.filter(i => !i.dismissed), [insights]);
+
+      const handleInsightAction = (insight) => {
+        if (!insight.actionPayload) return;
+        const { taskId, action } = insight.actionPayload;
+        if (action === 'start' && taskId) {
+          updateTask(taskId, { status: 'in_progress' });
+          showToast('Task started!', 'success');
+        }
+        dismissInsight(insight.id);
+        debouncedAIPrioritization();
+      };
+
+      const handleAddTask = (taskData) => {
+        useStore.getState().addTask(taskData);
+        showToast('Task created!', 'success');
+        debouncedAIPrioritization();
+      };
+
+      const handleEditSave = (taskData) => {
+        if (editTask) {
+          useStore.getState().updateTask(editTask.id, taskData);
+          showToast('Task updated!', 'success');
+          debouncedAIPrioritization();
+        }
+        setEditTask(null);
+      };
+
+      return html`<div className="dashboard-view view-enter flex gap-4 h-full">
+    <div className="flex-1 min-w-0 overflow-y-auto pr-2">
+
+      <div className="dashboard-hero flex items-center justify-between mb-6">
+        <div>
+          <div className="hero-kicker">Live command center</div>
+          <h1 className="font-heading text-2xl font-bold">Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, ${profile.name}</h1>
+          <p className="text-lm-muted text-sm mt-1">You have ${urgentTasks.length} urgent task${urgentTasks.length !== 1 ? 's' : ''} today</p>
+        </div>
+        <button onClick=${() => setAddModalOpen(true)}
+          className="voldog-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+          aria-label="Quick add task">
+          <span>+ New Task</span>
+        </button>
+      </div>
+
+
+      <div className="stat-grid grid grid-cols-3 gap-3 mb-6">
+        <div className="stat-card bg-lm-card border border-lm-border rounded-xl p-4">
+          <p className="text-lm-muted text-xs uppercase tracking-wide">Today's Progress</p>
+          <p className="text-2xl font-heading font-bold mt-1">${todayCompleted}</p>
+          <p className="text-xs text-lm-muted">tasks completed</p>
+        </div>
+        <div className="stat-card bg-lm-card border border-lm-border rounded-xl p-4">
+          <p className="text-lm-muted text-xs uppercase tracking-wide">Streak</p>
+          <p className="text-2xl font-heading font-bold mt-1">🔥 ${profile.streakDays}</p>
+          <p className="text-xs text-lm-muted">day${profile.streakDays !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="stat-card bg-lm-card border border-lm-border rounded-xl p-4">
+          <p className="text-lm-muted text-xs uppercase tracking-wide">Active</p>
+          <p className="text-2xl font-heading font-bold mt-1">${activeTasks.length}</p>
+          <p className="text-xs text-lm-muted">tasks remaining</p>
+        </div>
+      </div>
+
+      <${AlertBanners} />
+
+
+      ${urgentTasks.length > 0 ? html`<div className="mb-6">
+        <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
+          <span className="text-lm-critical">⚡</span> Urgent Tasks
+        </h2>
+        <div className="space-y-3">
+          ${urgentTasks.map(t => html`<${TaskCard} key=${t.id} task=${t} onEdit=${setEditTask} />`)}
+        </div>
+      </div>` : null}
+
+
+      <div>
+        <h2 className="font-heading text-lg font-bold mb-3">All Tasks</h2>
+        <div className="space-y-3">
+          ${activeTasks.length > 0 ? activeTasks.map(t => html`<${TaskCard} key=${t.id} task=${t} onEdit=${setEditTask} />`)
+          : html`<div className="text-center py-12 text-lm-muted">
+              <p className="text-4xl mb-3">🎉</p>
+              <p className="text-sm font-medium">All caught up! Add a new task to get started.</p>
+            </div>`}
+        </div>
+      </div>
+    </div>
+
+
+    <div className="insights-panel w-80 flex-shrink-0 hidden lg:block overflow-y-auto">
+      <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
+        <span>🤖</span> AI Insights
+      </h2>
+      ${aiLoading ? html`<${ShimmerLoader} />` : null}
+      ${activeInsights.length > 0 ? html`<div className="space-y-3">
+        ${activeInsights.map(insight => html`<div key=${insight.id} className="bg-lm-card border border-lm-border rounded-xl p-4">
+          <div className="flex items-start gap-2">
+            <span className="text-sm flex-shrink-0">${insight.type === 'risk_alert' ? '🔴' :
+              insight.type === 'schedule_suggestion' ? '📅' :
+                insight.type === 'break_reminder' ? '☕' :
+                  insight.type === 'habit_tip' ? '💡' : '📋'
+            }</span>
+            <div className="flex-1">
+              <p className="text-sm font-medium leading-relaxed">${insight.message}</p>
+              ${insight.actionLabel ? html`<button onClick=${() => handleInsightAction(insight)}
+                className="mt-2 text-xs font-bold px-3 py-1.5 rounded-lg bg-lm-primary/10 text-lm-primary hover:bg-lm-primary/20 border border-lm-primary/20 transition-colors"
+                aria-label=${insight.actionLabel}>
+                ${insight.actionLabel}
+              </button>` : null}
+            </div>
+            <button onClick=${() => dismissInsight(insight.id)} className="text-lm-muted hover:text-lm-text text-sm font-bold" aria-label="Dismiss insight">×</button>
+          </div>
+        </div>`)}
+      </div>` : html`<div className="text-center py-8 text-lm-muted text-sm">
+        ${aiLoading ? '' : 'AI insights will appear here once you set up your API key and have active tasks.'}
+      </div>`}
+    </div>
+
+    ${addModalOpen ? html`<${TaskFormModal} onClose=${() => setAddModalOpen(false)} onSave=${handleAddTask} />` : null}
+    ${editTask ? html`<${TaskFormModal} task=${editTask} onClose=${() => setEditTask(null)} onSave=${handleEditSave} />` : null}
+  </div>`;
+    }
+
+    // ===================================================================
+    // KANBAN BOARD VIEW
+    // ===================================================================
+    function TaskBoardView() {
+      const { tasks, updateTask, showToast, searchQuery } = useStore();
+      const [editTask, setEditTask] = useState(null);
+      const [addModalOpen, setAddModalOpen] = useState(false);
+      const [dragOverColumn, setDragOverColumn] = useState(null);
+
+      const visibleTasks = useMemo(() => tasks.filter(t =>
+        !searchQuery.trim() || `${t.title} ${t.description || ''} ${(t.tags || []).join(' ')}`.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      ), [tasks, searchQuery]);
+
+      const columns = useMemo(() => ({
+        pending: { label: 'Pending', icon: '📋', tasks: visibleTasks.filter(t => t.status === 'pending' || t.status === 'overdue' || t.status === 'snoozed') },
+        in_progress: { label: 'In Progress', icon: '🔄', tasks: visibleTasks.filter(t => t.status === 'in_progress') },
+        completed: { label: 'Done', icon: '✅', tasks: visibleTasks.filter(t => t.status === 'completed') },
+      }), [visibleTasks]);
+
+      const handleDrop = (status) => (ev) => {
+        ev.preventDefault();
+        const taskId = ev.dataTransfer.getData('text/plain');
+        if (!taskId) return;
+        if (status === 'completed') {
+          useStore.getState().completeTask(taskId);
+          showToast('Task completed! 🎉', 'success');
+        } else {
+          updateTask(taskId, { status });
+          showToast(`Moved to ${status.replace('_', ' ')}`, 'info');
+        }
+        setDragOverColumn(null);
+        debouncedAIPrioritization();
+      };
+
+      const handleDragOver = (status) => (ev) => { ev.preventDefault(); setDragOverColumn(status); };
+      const handleDragLeave = () => setDragOverColumn(null);
+
+      const handleAddTask = (taskData) => {
+        useStore.getState().addTask(taskData);
+        showToast('Task created!', 'success');
+        debouncedAIPrioritization();
+      };
+
+      const handleEditSave = (taskData) => {
+        if (editTask) {
+          updateTask(editTask.id, taskData);
+          showToast('Task updated!', 'success');
+          debouncedAIPrioritization();
+        }
+        setEditTask(null);
+      };
+
+      return html`<div className="kanban-view view-enter h-full flex flex-col">
+    <div className="flex items-center justify-between mb-4">
+      <h1 className="font-heading text-2xl font-bold">Task Board</h1>
+      <button onClick=${() => setAddModalOpen(true)}
+        className="voldog-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+        aria-label="Add task">
+        <span>+ New Task</span>
+      </button>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0">
+      ${Object.entries(columns).map(([status, col]) => html`<div key=${status}
+        className=${`flex flex-col bg-lm-surface rounded-xl border border-lm-border overflow-hidden ${dragOverColumn === status ? 'kanban-drop-active' : ''}`}
+        onDrop=${handleDrop(status)} onDragOver=${handleDragOver(status)} onDragLeave=${handleDragLeave}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-lm-border">
+          <div className="flex items-center gap-2">
+            <span>${col.icon}</span>
+            <h3 className="font-heading font-semibold text-sm">${col.label}</h3>
+          </div>
+          <span className="text-xs text-lm-muted bg-lm-bg px-2 py-0.5 rounded-full">${col.tasks.length}</span>
+        </div>
+        <div className="flex-1 p-3 overflow-y-auto space-y-2">
+          ${col.tasks.map(t => html`<${TaskCard} key=${t.id} task=${t} compact=${true} onEdit=${setEditTask} />`)}
+          ${col.tasks.length === 0 ? html`<div className="text-center py-8 text-lm-muted text-xs">
+            Drop tasks here
+          </div>` : null}
+        </div>
+      </div>`)}
+    </div>
+
+    ${addModalOpen ? html`<${TaskFormModal} onClose=${() => setAddModalOpen(false)} onSave=${handleAddTask} />` : null}
+    ${editTask ? html`<${TaskFormModal} task=${editTask} onClose=${() => setEditTask(null)} onSave=${handleEditSave} />` : null}
+  </div>`;
+    }
+
+    // ===================================================================
+    // AI PLANNER VIEW (Chat)
+    // ===================================================================
+    function AIPlannerView() {
+      const {
+        chatHistory, addChatMessage, clearChat, tasks, profile, apiKey, groqApiKey,
+        aiProvider, aiLoading, setAiLoading, showToast, onboarded, setOnboarded
+      } = useStore();
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+      const chatEndRef = useRef(null);
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [chatHistory]);
+
+      // First-run onboarding
+      useEffect(() => {
+        if (!onboarded && chatHistory.length === 0) {
+          addChatMessage({
+            role: 'assistant',
+            content: "Hi, I'm LastMinute — your AI deadline co-pilot. 🚀\n\nWhat's the most important thing you need to get done today? Just tell me in plain language and I'll create a structured task for you.\n\nFor example: \"I need to finish my presentation by tomorrow at 5pm, it'll take about 2 hours\""
+          });
+        }
+      }, []);
+
+      const sendMessage = useCallback(async (text) => {
+        const msg = text || input;
+        if (!msg.trim()) return;
+        setInput('');
+
+        addChatMessage({ role: 'user', content: msg.trim() });
+
+        const hasKey = aiProvider === 'groq' ? !!groqApiKey : !!apiKey;
+        if (!hasKey) {
+          addChatMessage({ role: 'assistant', content: "I'd love to help, but I need an API key first! Open Settings (gear icon) and select your preferred AI provider to get started." });
+          return;
+        }
+
+        setLoading(true);
+
+        const systemPrompt = `You are LastMinute, an AI productivity co-pilot. You help users manage tasks, plan their day, and meet deadlines.
+
+Current user profile: ${JSON.stringify({ name: profile.name, workingHours: profile.workingHours, productivityPeak: profile.productivityPeak })}
+Current time: ${new Date().toISOString()}
+Current tasks: ${JSON.stringify(tasks.map(t => ({ id: t.id, title: t.title, deadline: t.deadline, status: t.status, priority: t.priority, estimatedMinutes: t.estimatedMinutes })))}
+
+You can execute actions by including <action> tags in your response. Supported actions:
+- <action>{"type": "create_task", "payload": {"title": "...", "deadline": "ISO string", "estimatedMinutes": 30, "priority": "medium", "description": "..."}}</action>
+- <action>{"type": "update_task", "payload": {"id": "task_id", "title": "...", ...}}</action>
+- <action>{"type": "delete_task", "payload": {"id": "task_id"}}</action>
+- <action>{"type": "mark_complete", "payload": {"id": "task_id"}}</action>
+- <action>{"type": "reschedule_task", "payload": {"id": "task_id", "deadline": "ISO string"}}</action>
+
+Always include a friendly explanation along with any actions. Be concise and helpful. Parse natural language dates like "tomorrow 5pm" into ISO strings. Parse durations like "about 2 hours" into minutes.`;
+
+        const messages = [...chatHistory, { role: 'user', content: sanitizeForPrompt(msg) }]
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => ({ role: m.role, content: m.content }));
+
+        try {
+          const result = await callAIService(messages, systemPrompt);
+          if (result) {
+            const { actions, displayText } = parseActionTags(result);
+
+            // Execute actions
+            actions.forEach(action => {
+              try {
+                switch (action.type) {
+                  case 'create_task':
+                    useStore.getState().addTask(action.payload);
+                    showToast(`Task created: "${action.payload.title}"`, 'success');
+                    if (!onboarded) setOnboarded(true);
+                    break;
+                  case 'update_task':
+                    if (action.payload.id) {
+                      useStore.getState().updateTask(action.payload.id, action.payload);
+                      showToast('Task updated', 'success');
+                    }
+                    break;
+                  case 'delete_task':
+                    if (action.payload.id) {
+                      useStore.getState().deleteTask(action.payload.id);
+                      showToast('Task deleted', 'info');
+                    }
+                    break;
+                  case 'mark_complete':
+                    if (action.payload.id) {
+                      useStore.getState().completeTask(action.payload.id);
+                      showToast('Task completed! 🎉', 'success');
+                    }
+                    break;
+                  case 'reschedule_task':
+                    if (action.payload.id) {
+                      useStore.getState().updateTask(action.payload.id, { deadline: action.payload.deadline });
+                      showToast('Task rescheduled', 'success');
+                    }
+                    break;
+                }
+              } catch { }
+            });
+
+            if (actions.length > 0) debouncedAIPrioritization();
+            addChatMessage({ role: 'assistant', content: displayText || result });
+            VoiceService.speak(displayText || result);
+          } else {
+            addChatMessage({ role: 'assistant', content: "I couldn't process that right now. Please try again or check your API key in Settings." });
+          }
+        } catch {
+          addChatMessage({ role: 'assistant', content: "Something went wrong. Please try again." });
+        }
+        setLoading(false);
+      }, [input, chatHistory, apiKey, groqApiKey, aiProvider, tasks, profile]);
+
+      const handleVoiceResult = useCallback((text) => {
+        setInput(text);
+        sendMessage(text);
+      }, [sendMessage]);
+
+      const handleKeyDown = (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          sendMessage();
+        }
+      };
+
+      return html`<div className="planner-view view-enter h-full flex flex-col">
+    <div className="flex items-center justify-between mb-4">
+      <h1 className="font-heading text-2xl font-bold flex items-center gap-2">
+        <span>🤖</span> AI Planner
+      </h1>
+      <button onClick=${clearChat} className="voldog-btn-secondary px-3 py-1.5 rounded-lg text-xs font-bold" aria-label="Clear chat">
+        <span>Clear Chat</span>
+      </button>
+    </div>
+
+    <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-1">
+      ${chatHistory.map(msg => html`<div key=${msg.id} className=${`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <div className=${`max-w-[80%] px-4 py-3 ${msg.role === 'user' ? 'chat-user' : 'chat-ai'}`}>
+          <p className="text-sm whitespace-pre-wrap">${msg.content}</p>
+          <span className="text-[10px] opacity-75 mt-1 block font-mono">${formatTime(msg.timestamp)}</span>
+        </div>
+      </div>`)}
+      ${loading ? html`<div className="flex justify-start"><div className="chat-ai px-4 py-3 max-w-[80%]"><${ShimmerLoader} lines=${2} /></div></div>` : null}
+      <div ref=${chatEndRef} />
+    </div>
+
+    <div className="flex items-center gap-2 bg-lm-card border border-lm-border rounded-xl p-2 focus-mode-glow">
+      <${VoiceButton} onResult=${handleVoiceResult} />
+      <input ref=${inputRef} type="text" value=${input} onChange=${ev => setInput(ev.target.value)}
+        onKeyDown=${handleKeyDown} placeholder="Ask me anything about your tasks..."
+        className="flex-1 bg-transparent border-0 outline-none text-sm px-2 text-lm-text" aria-label="Chat input" />
+      <button onClick=${() => sendMessage()} disabled=${loading || !input.trim()}
+        className="voldog-btn px-4 py-2 rounded-xl text-sm disabled:opacity-40"
+        aria-label="Send message">
+        <span>Send</span>
+      </button>
+    </div>
+  </div>`;
+    }
+
+    // ===================================================================
+    // CALENDAR VIEW
+    // ===================================================================
+    function CalendarView() {
+      const { tasks, schedule, calendarView, setCalendarView, showToast, apiKey, groqApiKey, aiProvider } = useStore();
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [autoScheduling, setAutoScheduling] = useState(false);
+
+      const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      // Get week start (Sunday)
+      const getWeekStart = (date) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() - d.getDay());
+        d.setHours(0, 0, 0, 0);
+        return d;
+      };
+
+      const weekStart = getWeekStart(currentDate);
+      const weekDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      });
+
+      // Month calendar
+      const getMonthDays = (date) => {
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const days = [];
+        // Pad with previous month's days
+        for (let i = 0; i < firstDay.getDay(); i++) {
+          const d = new Date(year, month, -i);
+          days.unshift({ date: d, isCurrentMonth: false });
+        }
+        for (let i = 1; i <= lastDay.getDate(); i++) {
+          days.push({ date: new Date(year, month, i), isCurrentMonth: true });
+        }
+        // Pad to fill 6 rows
+        while (days.length < 42) {
+          const d = new Date(year, month + 1, days.length - lastDay.getDate() - firstDay.getDay() + 1);
+          days.push({ date: d, isCurrentMonth: false });
+        }
+        return days;
+      };
+
+      const monthDays = getMonthDays(currentDate);
+
+      const getTasksForDate = (date) => {
+        const dateStr = date.toDateString();
+        return tasks.filter(t => {
+          if (t.deadline && new Date(t.deadline).toDateString() === dateStr) return true;
+          // Check schedule
+          const sched = schedule.find(s => s.taskId === t.id);
+          if (sched && new Date(sched.startTime).toDateString() === dateStr) return true;
+          return false;
+        });
+      };
+
+      const getScheduleForDate = (date) => {
+        const dateStr = date.toDateString();
+        return schedule.filter(s => new Date(s.startTime).toDateString() === dateStr).map(s => {
+          const task = tasks.find(t => t.id === s.taskId);
+          return { ...s, task };
+        }).filter(s => s.task);
+      };
+
+      const handleAutoSchedule = async () => {
+        const hasKey = aiProvider === 'groq' ? !!groqApiKey : !!apiKey;
+        if (!hasKey) {
+          showToast('Set API key in Settings first', 'warning');
+          return;
+        }
+        setAutoScheduling(true);
+        try {
+          const { profile } = useStore.getState();
+          const activeTasks = tasks.filter(t => t.status !== 'completed');
+          const systemPrompt = `You are a scheduling AI. Given the user's working hours and tasks, create an optimal schedule for today.
+      
+User working hours: ${profile.workingHours.start} to ${profile.workingHours.end}
+Current time: ${new Date().toISOString()}
+Tasks: ${JSON.stringify(activeTasks.map(t => ({ id: t.id, title: t.title, deadline: t.deadline, estimatedMinutes: t.estimatedMinutes, priority: t.priority })))}
+
+Return ONLY valid JSON:
+{"schedule": [{"taskId": "id", "startTime": "ISO", "endTime": "ISO"}]}
+
+Fill today's remaining working hours optimally. Prioritize by urgency.`;
+
+          const result = await callAIService(
+            [{ role: 'user', content: 'Auto-schedule my tasks for today.' }],
+            systemPrompt,
+            true
+          );
+          if (result) {
+            const parsed = parseAIResponse(result);
+            if (parsed?.schedule) {
+              useStore.getState().setSchedule(parsed.schedule);
+              showToast('Schedule updated!', 'success');
+            }
+          }
+        } catch { }
+        setAutoScheduling(false);
+      };
+
+      const navigateDate = (dir) => {
+        const d = new Date(currentDate);
+        if (calendarView === 'week') d.setDate(d.getDate() + dir * 7);
+        else d.setMonth(d.getMonth() + dir);
+        setCurrentDate(d);
+      };
+
+      const hours = Array.from({ length: 12 }, (_, i) => i + 7); // 7am - 6pm
+
+      const isToday = (date) => date.toDateString() === new Date().toDateString();
+
+      return html`<div className="calendar-view view-enter h-full flex flex-col">
+    <div className="flex items-center justify-between mb-4">
+      <h1 className="font-heading text-2xl font-bold flex items-center gap-2">
+        <span>📅</span> Calendar
+      </h1>
+      <div className="flex items-center gap-2">
+        <div className="flex bg-lm-card border border-lm-border rounded-lg overflow-hidden">
+          <button onClick=${() => setCalendarView('week')}
+            className=${`px-3 py-1.5 text-xs transition-colors rounded-l-lg ${calendarView === 'week' ? 'bg-lm-primary text-lm-bg font-semibold' : 'text-lm-muted hover:text-lm-primary hover:bg-lm-bg'}`}
+            aria-label="Week view">Week</button>
+          <button onClick=${() => setCalendarView('month')}
+            className=${`px-3 py-1.5 text-xs transition-colors rounded-r-lg ${calendarView === 'month' ? 'bg-lm-primary text-lm-bg font-semibold' : 'text-lm-muted hover:text-lm-primary hover:bg-lm-bg'}`}
+            aria-label="Month view">Month</button>
+        </div>
+        <button onClick=${handleAutoSchedule} disabled=${autoScheduling}
+          className="voldog-btn flex items-center gap-1 px-4 py-2 rounded-xl text-sm disabled:opacity-40"
+          aria-label="Auto schedule">
+          ${autoScheduling ? '⏳' : '✨'} Auto-Schedule
+        </button>
+      </div>
+    </div>
+
+
+    <div className="flex items-center justify-between mb-4">
+      <button onClick=${() => navigateDate(-1)} className="p-2 rounded-lg bg-lm-card border border-lm-border hover:border-lm-primary hover:bg-lm-cardHover transition-colors" aria-label="Previous">◀</button>
+      <h2 className="font-heading font-semibold">
+        ${calendarView === 'week'
+          ? `${weekDays[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+      </h2>
+      <button onClick=${() => navigateDate(1)} className="p-2 rounded-lg bg-lm-card border border-lm-border hover:border-lm-primary hover:bg-lm-cardHover transition-colors" aria-label="Next">▶</button>
+    </div>
+
+
+    ${calendarView === 'week' ? html`
+      <div className="flex-1 overflow-auto">
+        <div className="grid grid-cols-8 min-w-[700px]">
+
+          <div className="bg-lm-surface border-b border-lm-border p-2" />
+          ${weekDays.map(d => html`<div key=${d.toISOString()}
+            className=${`bg-lm-surface border-b border-l border-lm-border p-2 text-center ${isToday(d) ? 'bg-lm-primaryLight/20' : ''}`}>
+            <p className="text-xs text-lm-muted">${daysOfWeek[d.getDay()]}</p>
+            <p className=${`text-sm font-semibold ${isToday(d) ? 'text-lm-primary' : ''}`}>${d.getDate()}</p>
+          </div>`)}
+
+
+          ${hours.map(h => html`<${Fragment} key=${h}>
+            <div className="border-b border-lm-border px-2 py-3 text-xs text-lm-muted font-mono text-right">
+              ${h > 12 ? h - 12 : h}${h >= 12 ? 'pm' : 'am'}
+            </div>
+            ${weekDays.map(d => {
+            const daySchedule = getScheduleForDate(d);
+            const slotTasks = daySchedule.filter(s => {
+              const startHour = new Date(s.startTime).getHours();
+              return startHour === h;
+            });
+            return html`<div key=${d.toISOString() + h} className="border-b border-l border-lm-border p-1 min-h-[48px] relative">
+                ${slotTasks.map(s => html`<div key=${s.taskId}
+                  className="rounded-md px-2 py-1 text-xs truncate mb-0.5"
+                  style=${{ background: PRIORITY_COLORS[s.task?.priority] + '30', borderLeft: `3px solid ${PRIORITY_COLORS[s.task?.priority]}` }}>
+                  ${s.task?.title}
+                </div>`)}
+              </div>`;
+          })}
+          </${Fragment}>`)}
+        </div>
+      </div>
+    ` : html`
+      <div className="flex-1">
+
+        <div className="grid grid-cols-7 gap-px mb-1">
+          ${daysOfWeek.map(d => html`<div key=${d} className="text-center text-xs text-lm-muted py-2">${d}</div>`)}
+        </div>
+
+        <div className="grid grid-cols-7 gap-px">
+          ${monthDays.map(({ date, isCurrentMonth }) => {
+            const dayTasks = getTasksForDate(date);
+            return html`<div key=${date.toISOString()}
+              className=${`min-h-[80px] p-1.5 rounded-lg border border-lm-border ${isCurrentMonth ? 'bg-lm-card' : 'bg-lm-surface opacity-40'} ${isToday(date) ? 'ring-1 ring-lm-primary' : ''}`}>
+              <p className=${`text-xs font-mono mb-1 ${isToday(date) ? 'text-lm-primary font-bold' : 'text-lm-muted'}`}>${date.getDate()}</p>
+              ${dayTasks.slice(0, 3).map(t => html`<div key=${t.id} className="rounded px-1 py-0.5 text-xs truncate mb-0.5"
+                style=${{ background: PRIORITY_COLORS[t.priority] + '30', color: PRIORITY_COLORS[t.priority] }}>
+                ${t.title}
+              </div>`)}
+              ${dayTasks.length > 3 ? html`<p className="text-xs text-lm-muted">+${dayTasks.length - 3} more</p>` : null}
+            </div>`;
+          })}
+        </div>
+      </div>
+    `}
+  </div>`;
+    }
+
+    // ===================================================================
+    // ANALYTICS VIEW
+    // ===================================================================
+    function AnalyticsView() {
+      const { tasks, profile } = useStore();
+
+      // Weekly completion data (last 7 days)
+      const weeklyData = useMemo(() => {
+        const days = [];
+        const now = new Date();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toDateString();
+          const completed = tasks.filter(t => t.completedAt && new Date(t.completedAt).toDateString() === dateStr).length;
+          days.push({ label: d.toLocaleDateString('en-US', { weekday: 'short' }), count: completed, date: d });
+        }
+        return days;
+      }, [tasks]);
+
+      const maxWeekly = Math.max(...weeklyData.map(d => d.count), 1);
+
+      // 90-day heatmap
+      const heatmapData = useMemo(() => {
+        const days = [];
+        const now = new Date();
+        for (let i = 89; i >= 0; i--) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toDateString();
+          const completed = tasks.filter(t => t.completedAt && new Date(t.completedAt).toDateString() === dateStr).length;
+          days.push({ date: d, count: completed });
+        }
+        return days;
+      }, [tasks]);
+
+      const maxHeatmap = Math.max(...heatmapData.map(d => d.count), 1);
+
+      const getHeatmapColor = (count) => {
+        if (count === 0) return '#E6E5DC';
+        const intensity = count / maxHeatmap;
+        if (intensity < 0.25) return '#C2CECB';
+        if (intensity < 0.5) return '#8DA39E';
+        if (intensity < 0.75) return '#56746E';
+        return '#1E3A34';
+      };
+
+      // Badges
+      const badges = useMemo(() => {
+        const earned = [];
+        if (profile.streakDays >= 7) earned.push({ icon: '🔥', label: '7-Day Streak', desc: 'Completed tasks 7 days in a row' });
+        if (profile.streakDays >= 30) earned.push({ icon: '💎', label: '30-Day Streak', desc: 'A whole month of consistency!' });
+
+        const thisWeekCompleted = weeklyData.reduce((sum, d) => sum + d.count, 0);
+        if (thisWeekCompleted >= 10) earned.push({ icon: '🏆', label: '10 This Week', desc: 'Completed 10 tasks this week' });
+
+        const now = new Date();
+        const thisMonth = tasks.filter(t => {
+          if (t.status !== 'overdue') return false;
+          const dl = new Date(t.deadline);
+          return dl.getMonth() === now.getMonth() && dl.getFullYear() === now.getFullYear();
+        });
+        if (thisMonth.length === 0) earned.push({ icon: '🛡️', label: 'Zero Missed', desc: 'No missed deadlines this month' });
+
+        if (profile.totalCompleted >= 50) earned.push({ icon: '⭐', label: '50 Club', desc: 'Completed 50 tasks total' });
+        if (profile.totalCompleted >= 100) earned.push({ icon: '🌟', label: 'Century', desc: '100 tasks completed!' });
+
+        // Always show at least one badge (getting started)
+        if (earned.length === 0) earned.push({ icon: '🚀', label: 'Getting Started', desc: 'Welcome to LastMinute!' });
+
+        return earned;
+      }, [profile, tasks, weeklyData]);
+
+      return html`<div className="view-enter h-full overflow-y-auto">
+    <h1 className="font-heading text-2xl font-bold mb-6 flex items-center gap-2">
+      <span>📊</span> Analytics
+    </h1>
+
+
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="bg-lm-card border border-lm-border rounded-xl p-4 text-center">
+        <p className="text-3xl font-heading font-bold text-lm-primary">${profile.totalCompleted}</p>
+        <p className="text-xs text-lm-muted mt-1">Total Completed</p>
+      </div>
+      <div className="bg-lm-card border border-lm-border rounded-xl p-4 text-center">
+        <p className="text-3xl font-heading font-bold">🔥 ${profile.streakDays}</p>
+        <p className="text-xs text-lm-muted mt-1">Day Streak</p>
+      </div>
+      <div className="bg-lm-card border border-lm-border rounded-xl p-4 text-center">
+        <p className="text-3xl font-heading font-bold text-lm-completed">${tasks.filter(t => t.status === 'completed').length}</p>
+        <p className="text-xs text-lm-muted mt-1">Done</p>
+      </div>
+      <div className="bg-lm-card border border-lm-border rounded-xl p-4 text-center">
+        <p className="text-3xl font-heading font-bold text-lm-critical">${profile.missedDeadlines}</p>
+        <p className="text-xs text-lm-muted mt-1">Missed</p>
+      </div>
+    </div>
+
+
+    <div className="bg-lm-card border border-lm-border rounded-xl p-5 mb-6">
+      <h2 className="font-heading font-semibold mb-4">Weekly Completion</h2>
+      <svg viewBox="0 0 350 160" className="w-full" aria-label="Weekly completion chart">
+        ${weeklyData.map((d, i) => {
+        const barHeight = (d.count / maxWeekly) * 100;
+        const x = i * 50 + 10;
+        return html`<${Fragment} key=${i}>
+            <rect x=${x} y=${130 - barHeight} width="30" height=${barHeight || 2}
+              rx="4" fill=${d.count > 0 ? '#1E3A34' : '#E6E5DC'}
+              style=${{ transition: 'height 500ms ease, y 500ms ease' }} />
+            <text x=${x + 15} y="150" textAnchor="middle" fill="#6C8580" fontSize="10" fontFamily="Inter">${d.label}</text>
+            ${d.count > 0 ? html`<text x=${x + 15} y=${125 - barHeight} textAnchor="middle" fill="#F7F5EE" fontSize="10" fontFamily="JetBrains Mono">${d.count}</text>` : null}
+          </${Fragment}>`;
+      })}
+      </svg>
+    </div>
+
+
+    <div className="bg-lm-card border border-lm-border rounded-xl p-5 mb-6">
+      <h2 className="font-heading font-semibold mb-4">90-Day Activity</h2>
+      <div className="flex flex-wrap gap-1">
+        ${heatmapData.map((d, i) => html`<div key=${i}
+          className="heatmap-cell w-3 h-3 rounded-sm"
+          style=${{ background: getHeatmapColor(d.count) }}
+          title=${`${d.date.toLocaleDateString()}: ${d.count} tasks`}
+          aria-label=${`${d.date.toLocaleDateString()}: ${d.count} tasks completed`}
+        />`)}
+      </div>
+      <div className="flex items-center gap-2 mt-3 text-xs text-lm-muted">
+        <span>Less</span>
+        ${[0, 0.25, 0.5, 0.75, 1].map((v, i) => html`<div key=${i} className="w-3 h-3 rounded-sm" style=${{ background: getHeatmapColor(v * maxHeatmap) }} />`)}
+        <span>More</span>
+      </div>
+    </div>
+
+
+    <div className="bg-lm-card border border-lm-border rounded-xl p-5">
+      <h2 className="font-heading font-semibold mb-4">Badges</h2>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        ${badges.map((b, i) => html`<div key=${i} className="flex items-center gap-3 p-3 bg-lm-bg rounded-xl border border-lm-border">
+          <span className="text-3xl">${b.icon}</span>
+          <div>
+            <p className="text-sm font-semibold">${b.label}</p>
+            <p className="text-xs text-lm-muted">${b.desc}</p>
+          </div>
+        </div>`)}
+      </div>
+    </div>
+  </div>`;
+    }
+
+    // ===================================================================
+    // MASCOT (Vector visual companion)
+    // ===================================================================
+    function Mascot({ mood }) {
+      const isSleeping = mood === 'resting';
+      const isExcited = mood === 'happy';
+      const isAlert = mood === 'alert';
+
+      return html`<svg width="180" height="180" viewBox="0 0 200 200" className="mx-auto" aria-hidden="true">
+    <defs>
+      <radialGradient id="mascotGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stopColor=${isAlert ? 'rgba(244,63,94,0.2)' : 'rgba(60,208,112,0.2)'} />
+        <stop offset="100%" stopColor="rgba(8,12,14,0)" />
+      </radialGradient>
+    </defs>
+    <circle cx="100" cy="120" r="80" fill="url(#mascotGlow)" />
+    
+    <g className="voldog-mascot-body">
+      <!-- Tail -->
+      <path className="voldog-mascot-tail" d="M 60 140 Q 40 120 45 105" stroke=${isAlert ? '#E05A47' : '#1E3A34'} strokeWidth="6" strokeLinecap="round" fill="none" />
+      
+      <!-- Body/Backrest -->
+      <path d="M 70 150 Q 80 100 120 100 Q 150 100 155 130 Q 157 150 150 155 Q 140 160 70 150 Z" fill="#FFFFFF" stroke="#1E3A34" strokeWidth="4" />
+      
+      <!-- Head -->
+      <circle cx="125" cy="85" r="32" fill="#FFFFFF" stroke="#1E3A34" strokeWidth="4" />
+      
+      <!-- Ears -->
+      <path d="M 105 65 Q 90 40 105 50 Z" fill="#FFFFFF" stroke="#1E3A34" strokeWidth="4" />
+      <path d="M 145 65 Q 160 40 145 50 Z" fill="#FFFFFF" stroke="#1E3A34" strokeWidth="4" />
+      
+      <!-- Eyes -->
+      ${isSleeping
+          ? html`
+          <path d="M 112 85 Q 117 90 122 85" stroke="#6C8580" strokeWidth="3" strokeLinecap="round" fill="none" />
+          <path d="M 128 85 Q 133 90 138 85" stroke="#6C8580" strokeWidth="3" strokeLinecap="round" fill="none" />
+        `
+          : html`
+          <ellipse className="voldog-mascot-eye" cx="117" cy="82" rx="4" ry=${isExcited ? '6' : '4'} fill=${isAlert ? '#E05A47' : '#1E3A34'} />
+          <ellipse className="voldog-mascot-eye" cx="133" cy="82" rx="4" ry=${isExcited ? '6' : '4'} fill=${isAlert ? '#E05A47' : '#1E3A34'} />
+        `
+        }
+      
+      <!-- Snout / Nose -->
+      <polygon points="122,90 128,90 125,94" fill=${isAlert ? '#E05A47' : '#1E3A34'} />
+      <path d="M 125 94 Q 125 98 122 98 M 125 94 Q 125 98 128 98" stroke="#1E3A34" strokeWidth="2" fill="none" />
+
+      ${isSleeping && html`
+        <g className="opacity-60 text-[10px] font-mono fill-lm-muted select-none">
+          <text x="60" y="70" className="animate-bounce">Z</text>
+          <text x="50" y="80" className="animate-bounce" style=${{ animationDelay: '0.5s' }}>z</text>
+          <text x="43" y="90" className="animate-bounce" style=${{ animationDelay: '1s' }}>z</text>
+        </g>
+      `}
+
+      <circle cx="125" cy="125" r="5" fill=${isAlert ? '#E05A47' : '#DDE235'} className=${isSleeping ? 'opacity-20' : 'animate-ping'} />
+    </g>
+  </svg>`;
+    }
+
+    // ===================================================================
+    // FOCUS MODE VIEW (Minimalist deadline hero page)
+    // ===================================================================
+    function FocusModeView() {
+      const { tasks, setFocusMode, completeTask, toggleSubtask, showToast } = useStore();
+      const [happyTime, setHappyTime] = useState(false);
+
+      const nextTask = useMemo(() => {
+        return tasks
+          .filter(t => t.status !== 'completed')
+          .sort((a, b) => {
+            const aStatus = getDeadlineStatus(a.deadline);
+            const bStatus = getDeadlineStatus(b.deadline);
+            if (aStatus === 'critical' && bStatus !== 'critical') return -1;
+            if (bStatus === 'critical' && aStatus !== 'critical') return 1;
+            return (b.aiScore || 0) - (a.aiScore || 0) || new Date(a.deadline) - new Date(b.deadline);
+          })[0];
+      }, [tasks]);
+
+      const handleSubtaskChange = (taskId, subtaskId) => {
+        toggleSubtask(taskId, subtaskId);
+        setHappyTime(true);
+        setTimeout(() => setHappyTime(false), 2000);
+      };
+
+      const handleComplete = () => {
+        if (!nextTask) return;
+        completeTask(nextTask.id);
+        showToast(`"${nextTask.title}" completed! 🎉`, 'success');
+        setHappyTime(true);
+        setTimeout(() => setHappyTime(false), 2000);
+      };
+
+      const mood = useMemo(() => {
+        if (!nextTask) return 'resting';
+        if (happyTime) return 'happy';
+        const status = getDeadlineStatus(nextTask.deadline);
+        if (status === 'critical' || status === 'overdue') return 'alert';
+        return 'chill';
+      }, [nextTask, happyTime]);
+
+      let radius = 70;
+      let circumference = 2 * Math.PI * radius;
+      let progress = 1;
+      let remainingText = 'No deadlines';
+      let color = '#1E3A34';
+
+      if (nextTask) {
+        const status = getDeadlineStatus(nextTask.deadline);
+        const now = Date.now();
+        const dl = new Date(nextTask.deadline).getTime();
+        const remaining = Math.max(0, dl - now);
+        progress = Math.min(1, remaining / (86400000 * 7));
+        remainingText = getTimeRemaining(nextTask.deadline);
+
+        color = status === 'critical' || status === 'overdue' ? '#E05A47'
+          : status === 'high' ? '#E2943B'
+            : status === 'medium' ? '#F2C94C' : '#DDE235';
+      }
+
+      const offset = circumference * (1 - progress);
+
+      return html`<div className="view-enter flex flex-col items-center justify-center min-h-[85vh] text-center px-4 relative">
+    <div className="absolute top-0 right-0 flex items-center gap-3">
+      <span className="text-[10px] font-mono text-lm-muted tracking-widest">FOCUS MODE ACTIVE</span>
+      <button onClick=${() => setFocusMode(false)}
+        className="voldog-btn px-4 py-1.5 rounded-full text-xs font-semibold focus-mode-glow flex items-center gap-1"
+        aria-label="Exit focus mode">
+        <span>Exit Focus</span>
+      </button>
+    </div>
+
+    <div className="w-full max-w-lg bg-lm-card/30 border border-lm-border rounded-[32px] p-8 focus-mode-glow relative backdrop-blur-md">
+      <div className="mb-4">
+        <${Mascot} mood=${mood} />
+      </div>
+
+      ${nextTask ? html`
+        <div className="space-y-6">
+          <div>
+            <span className="text-[9px] tracking-widest font-mono text-lm-primary bg-lm-primary/10 px-3 py-1 rounded-full uppercase font-bold">NEXT UP</span>
+            <h2 className="text-xl font-heading font-bold mt-3 text-lm-text tracking-tight">${nextTask.title}</h2>
+            ${nextTask.description ? html`<p className="text-xs text-lm-muted mt-2 max-w-md mx-auto leading-relaxed">${nextTask.description}</p>` : null}
+          </div>
+
+          <div className="relative flex items-center justify-center h-40">
+            <svg width="150" height="150" className="absolute">
+              <circle cx="75" cy="75" r=${radius} fill="none" stroke="#1C2529" strokeWidth="5" />
+              <circle cx="75" cy="75" r=${radius} fill="none" stroke=${color} strokeWidth="5"
+                strokeDasharray=${circumference} strokeDashoffset=${offset}
+                strokeLinecap="round" transform="rotate(-90 75 75)"
+                style=${{ transition: 'stroke-dashoffset 800ms ease' }} />
+            </svg>
+            <div className="z-10 flex flex-col items-center justify-center">
+              <span className="text-[9px] uppercase font-mono text-lm-muted tracking-wider">Remaining</span>
+              <span className="text-lg font-heading font-bold font-mono mt-0.5" style=${{ color }}>${remainingText}</span>
+              <span className="text-[9px] text-lm-muted mt-0.5 font-mono">${nextTask.estimatedMinutes}m est.</span>
+            </div>
+          </div>
+
+          ${nextTask.subtasks && nextTask.subtasks.length > 0 ? html`<div className="text-left bg-lm-surface/50 border border-lm-border rounded-xl p-4 space-y-2.5">
+            <h4 className="text-[10px] uppercase font-mono text-lm-muted tracking-wider">Subtasks Checklist</h4>
+            ${nextTask.subtasks.map(st => html`<label key=${st.id} className="flex items-start gap-3 text-xs cursor-pointer select-none py-0.5" onClick=${ev => ev.stopPropagation()}>
+              <input type="checkbox" checked=${st.completed} onChange=${() => handleSubtaskChange(nextTask.id, st.id)}
+                className="w-3.5 h-3.5 rounded accent-lm-primary mt-0.5" aria-label=${st.title} />
+              <span className=${st.completed ? 'line-through text-lm-muted' : 'text-lm-text'}>${st.title}</span>
+            </label>`)}
+          </div>` : null}
+
+          <button onClick=${handleComplete}
+            className="w-full voldog-btn py-3.5 rounded-xl font-heading font-bold text-xs tracking-widest shadow-xl flex items-center justify-center gap-2"
+            aria-label="Complete task">
+            <span>MARK AS COMPLETE</span>
+          </button>
+        </div>
+      ` : html`
+        <div className="py-12 space-y-4">
+          <p className="text-4xl animate-pulse">⚡</p>
+          <h3 className="text-lg font-heading font-bold text-lm-primary">Queue Cleared!</h3>
+          <p className="text-xs text-lm-muted max-w-sm mx-auto leading-relaxed">All active tasks completed. Rest, recharge, or click below to return to the dashboard.</p>
+          <button onClick=${() => setFocusMode(false)} className="voldog-btn px-6 py-2.5 rounded-xl text-xs font-bold font-mono tracking-widest">
+            <span>GO TO DASHBOARD</span>
+          </button>
+        </div>
+      `}
+    </div>
+  </div>`;
+    }
+
+    // ===================================================================
+    // SIDEBAR
+    // ===================================================================
+    function Sidebar() {
+      const { currentView, setView, sidebarExpanded, toggleSidebar, setSettingsOpen, focusMode, setFocusMode } = useStore();
+
+      return html`<nav className="premium-sidebar sidebar-desktop sidebar-transition h-full bg-lm-surface border-r border-lm-border flex flex-col ${sidebarExpanded ? 'sidebar-expanded' : 'sidebar-collapsed'}"
+    aria-label="Main navigation">
+
+    <div className="sidebar-brand flex items-center h-16 px-3 border-b border-lm-border">
+      <button onClick=${toggleSidebar} className="flex items-center gap-2 hover:opacity-80 transition-opacity w-full" aria-label="Toggle sidebar">
+        <div className="brand-mark w-10 h-10 rounded-xl bg-gradient-to-br from-lm-primary to-lm-primaryLight flex items-center justify-center flex-shrink-0">
+          <span className="text-black font-heading font-bold text-lg">L</span>
+        </div>
+        ${sidebarExpanded ? html`<span className="font-heading font-bold text-lg whitespace-nowrap overflow-hidden">LastMinute</span>` : null}
+      </button>
+    </div>
+
+    <div className="flex-1 py-3 flex flex-col gap-1 px-2">
+      ${VIEW_NAMES.map(view => html`<button key=${view} onClick=${() => setView(view)}
+        className=${`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm ${currentView === view && !focusMode ? 'bg-lm-primary/20 text-lm-primary font-semibold' : 'text-lm-muted hover:text-lm-primary hover:bg-lm-card'
+        }`} aria-label=${VIEW_LABELS[view]} aria-current=${currentView === view && !focusMode ? 'page' : undefined}>
+        <span className="text-lg flex-shrink-0">${VIEW_ICONS[view]}</span>
+        ${sidebarExpanded ? html`<span className="whitespace-nowrap overflow-hidden">${VIEW_LABELS[view]}</span>` : null}
+      </button>
+      `)}
+    </div>
+
+    <!-- Co-Pilot Mode Toggle Switch -->
+    <div className="px-2 pb-2">
+      <button onClick=${() => setFocusMode(!focusMode)}
+        className=${`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm w-full ${focusMode ? 'bg-lm-primary/20 text-lm-primary font-semibold' : 'text-lm-muted hover:text-lm-primary hover:bg-lm-card'
+        }`} aria-label="Toggle Focus Mode">
+        <span className="text-lg flex-shrink-0 relative">
+          🤖
+          ${focusMode && html`<span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-lm-primary rounded-full animate-ping" />`}
+        </span>
+        ${sidebarExpanded ? html`<span className="whitespace-nowrap overflow-hidden flex items-center justify-between w-full">Focus Mode <span className="text-[9px] bg-lm-primary/10 text-lm-primary px-1.5 py-0.5 rounded-full font-mono font-bold">VOLDOG</span></span>` : null}
+      </button>
+    </div>
+
+    <div className="px-2 pb-3">
+      <button onClick=${() => setSettingsOpen(true)}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm text-lm-muted hover:text-lm-primary hover:bg-lm-card w-full"
+        aria-label="Settings">
+        <span className="text-lg flex-shrink-0">⚙️</span>
+        ${sidebarExpanded ? html`<span className="whitespace-nowrap overflow-hidden">Settings</span>` : null}
+      </button>
+    </div>
+  </nav>`;
+    }
+
+    // -- Mobile Tab Bar --
+    function MobileTabBar() {
+      const { currentView, setView } = useStore();
+      return html`<nav className="mobile-tab-bar fixed bottom-0 left-0 right-0 bg-lm-surface border-t border-lm-border z-40 items-center justify-around py-2 px-1"
+    aria-label="Mobile navigation">
+    ${VIEW_NAMES.map(view => html`<button key=${view} onClick=${() => setView(view)}
+      className=${`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs ${currentView === view ? 'text-lm-primary' : 'text-lm-muted'
+        }`} aria-label=${VIEW_LABELS[view]}>
+      <span className="text-lg">${VIEW_ICONS[view]}</span>
+      <span>${VIEW_LABELS[view]}</span>
+    </button>`)}
+  </nav>`;
+    }
+
+    // -- Top Bar --
+    function TopBar() {
+      const { searchQuery, setSearchQuery, setSettingsOpen, focusMode, setFocusMode } = useStore();
+      const [notifOpen, setNotifOpen] = useState(false);
+      const alerts = useStore(s => s.alerts);
+
+      return html`<header className="premium-topbar h-14 bg-lm-surface border-b border-lm-border flex items-center px-4 gap-3 flex-shrink-0">
+
+    <div className="flex-1 max-w-md">
+      <div className="search-shell flex items-center bg-lm-card border border-lm-border rounded-lg px-3 py-1.5">
+        <span className="text-lm-muted text-sm mr-2">🔍</span>
+        <input type="text" value=${searchQuery} onChange=${ev => setSearchQuery(ev.target.value)}
+          placeholder="Search tasks..." className="bg-transparent outline-none text-sm flex-1 text-lm-text"
+          aria-label="Search tasks" />
+      </div>
+    </div>
+
+
+    <${VoiceButton} onResult=${(text) => {
+          const { setView, addChatMessage } = useStore.getState();
+          setView('planner');
+          // Delay to ensure view transition
+          setTimeout(() => {
+            addChatMessage({ role: 'user', content: text });
+          }, 300);
+        }} />
+
+
+    <div className="relative">
+      <button onClick=${() => setNotifOpen(!notifOpen)}
+        className="relative w-9 h-9 rounded-lg bg-lm-card hover:bg-lm-cardHover transition-colors flex items-center justify-center"
+        aria-label="Notifications">
+        <span className="text-base">🔔</span>
+        ${alerts.length > 0 ? html`<span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-lm-critical rounded-full text-xs text-white flex items-center justify-center font-mono font-bold">${alerts.length}</span>` : null}
+      </button>
+      ${notifOpen ? html`<div className="absolute right-0 top-full mt-2 w-72 bg-lm-card border border-lm-border rounded-xl shadow-2xl z-50 p-3">
+        <h3 className="font-heading font-semibold text-sm mb-2">Notifications</h3>
+        ${alerts.length > 0 ? alerts.slice(0, 5).map(a => html`<div key=${a.id} className="text-xs text-lm-muted py-2 border-b border-lm-border last:border-0">
+          ${a.level === 'critical' ? '🔴' : a.level === 'high' ? '🟠' : '🟡'} ${a.message}
+        </div>`) : html`<p className="text-xs text-lm-muted py-3">No notifications</p>`}
+      </div>` : null}
+    </div>
+
+
+    <button onClick=${() => setFocusMode(!focusMode)}
+      className=${`relative w-9 h-9 rounded-lg transition-all flex items-center justify-center border ${focusMode ? 'bg-lm-primary/20 border-lm-primary text-lm-primary' : 'bg-lm-card border-lm-border hover:bg-lm-cardHover text-lm-muted'
+        }`}
+      aria-label="Toggle Focus Mode">
+      <span className="text-base">🤖</span>
+      ${focusMode && html`<span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-lm-primary rounded-full animate-ping" />`}
+    </button>
+
+    <button onClick=${() => setSettingsOpen(true)}
+      className="w-9 h-9 rounded-lg bg-lm-card hover:bg-lm-cardHover transition-colors flex items-center justify-center md:hidden"
+      aria-label="Settings">
+      <span>⚙️</span>
+    </button>
+  </header>`;
+    }
+
+    // ===================================================================
+    // VIEW ROUTER
+    // ===================================================================
+    function ViewRouter() {
+      const currentView = useStore(s => s.currentView);
+      const searchQuery = useStore(s => s.searchQuery);
+
+      // Filter tasks by search query globally
+      useEffect(() => {
+        // We handle search filtering within each view component if needed
+      }, [searchQuery]);
+
+      switch (currentView) {
+        case 'dashboard': return html`<${ErrorBoundary}><${DashboardView} /></${ErrorBoundary}>`;
+        case 'board': return html`<${ErrorBoundary}><${TaskBoardView} /></${ErrorBoundary}>`;
+        case 'planner': return html`<${ErrorBoundary}><${AIPlannerView} /></${ErrorBoundary}>`;
+        case 'calendar': return html`<${ErrorBoundary}><${CalendarView} /></${ErrorBoundary}>`;
+        case 'analytics': return html`<${ErrorBoundary}><${AnalyticsView} /></${ErrorBoundary}>`;
+        default: return html`<${ErrorBoundary}><${DashboardView} /></${ErrorBoundary}>`;
+      }
+    }
+
+    // ===================================================================
+    // KINETIC INTRO
+    // ===================================================================
+    function KineticIntro() {
+      const [visible, setVisible] = useState(true);
+      const rootRef = useRef(null);
+
+      const closeIntro = useCallback(() => {
+        const root = rootRef.current;
+        if (root && window.gsap) {
+          window.gsap.to(root, {
+            clipPath: 'inset(0 0 100% 0)',
+            duration: 0.65,
+            ease: 'power4.inOut',
+            onComplete: () => setVisible(false)
+          });
+        } else {
+          setVisible(false);
+        }
+      }, []);
+
+      useEffect(() => {
+        if (!visible || !rootRef.current) return;
+        const root = rootRef.current;
+        const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        if (!window.gsap || prefersReduced) {
+          const timer = setTimeout(() => setVisible(false), prefersReduced ? 800 : 2600);
+          return () => clearTimeout(timer);
+        }
+
+        const words = root.querySelectorAll('.intro-word');
+        const polygon = root.querySelector('.kinetic-intro__polygon');
+        const tl = window.gsap.timeline({ defaults: { ease: 'power4.out' } });
+
+        window.gsap.set(words, { yPercent: 120, opacity: 0, rotate: 3 });
+        words.forEach(word => {
+          tl.to(word, { yPercent: 0, opacity: 1, rotate: 0, duration: 0.42 })
+            .to(word, { yPercent: -120, opacity: 0, rotate: -3, duration: 0.35, ease: 'power3.in' }, '+=0.12');
+        });
+        tl.fromTo(polygon,
+          { scale: 0.72, rotate: -8 },
+          { scale: 1, rotate: 0, duration: 2.6, ease: 'expo.out' },
+          0
+        ).to(root, {
+          clipPath: 'inset(0 0 100% 0)',
+          duration: 0.75,
+          ease: 'power4.inOut',
+          onComplete: () => setVisible(false)
+        });
+
+        return () => tl.kill();
+      }, [visible]);
+
+      if (!visible) return null;
+
+      return html`<div ref=${rootRef} className="kinetic-intro" aria-label="LastMinute introduction">
+        <div className="kinetic-intro__brand">LM.</div>
+        <button className="kinetic-intro__skip" onClick=${closeIntro} aria-label="Skip introduction">Skip intro</button>
+        <div className="kinetic-intro__stage">
+          <div className="kinetic-intro__polygon" />
+          <div className="kinetic-intro__words" aria-hidden="true">
+            <span className="intro-word">plan</span>
+            <span className="intro-word">focus</span>
+            <span className="intro-word">finish</span>
+            <span className="intro-word">on time.</span>
+          </div>
+        </div>
+        <div className="kinetic-intro__footer">Your deadline co-pilot.<br />Make time matter.</div>
+      </div>`;
+    }
+
+    // ===================================================================
+    // APP
+    // ===================================================================
+    function App() {
+      const { apiKey, groqApiKey, aiProvider, focusMode, currentView } = useStore();
+      const tasks = useStore(s => s.tasks);
+
+      const hasKey = aiProvider === 'groq' ? !!groqApiKey : !!apiKey;
+
+      // GSAP view reveals and pointer-reactive scene lighting
+      useEffect(() => {
+        const shell = document.querySelector('.app-shell');
+        const view = document.querySelector('.workspace-main .view-enter');
+        if (window.gsap && view && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          window.gsap.fromTo(view,
+            { opacity: 0, y: 34, clipPath: 'polygon(0 10%, 100% 0, 100% 100%, 0 92%)' },
+            { opacity: 1, y: 0, clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)', duration: 0.72, ease: 'power4.out' }
+          );
+        }
+
+        const handlePointer = (event) => {
+          if (!shell) return;
+          shell.style.setProperty('--mx', `${event.clientX}px`);
+          shell.style.setProperty('--my', `${event.clientY}px`);
+        };
+        window.addEventListener('pointermove', handlePointer, { passive: true });
+        return () => window.removeEventListener('pointermove', handlePointer);
+      }, [currentView, focusMode]);
+
+      // VolDog Lagging Cursor Effect
+      useEffect(() => {
+        const isFinePointer = window.matchMedia('(pointer: fine)').matches;
+        if (!isFinePointer) return;
+
+        const dot = document.getElementById('voldog-cursor-dot');
+        const ring = document.getElementById('voldog-cursor-ring');
+        if (!dot || !ring) return;
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let ringX = 0;
+        let ringY = 0;
+
+        const onMouseMove = (e) => {
+          mouseX = e.clientX;
+          mouseY = e.clientY;
+          dot.style.left = `${mouseX}px`;
+          dot.style.top = `${mouseY}px`;
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+
+        let active = true;
+        const tick = () => {
+          if (!active) return;
+          ringX += (mouseX - ringX) * 0.14;
+          ringY += (mouseY - ringY) * 0.14;
+
+          ring.style.left = `${ringX}px`;
+          ring.style.top = `${ringY}px`;
+
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+
+        const handleMouseOver = (e) => {
+          const target = e.target;
+          if (!target) return;
+          if (
+            target.closest('a') ||
+            target.closest('button') ||
+            target.closest('.task-card') ||
+            target.closest('input') ||
+            target.closest('textarea') ||
+            target.closest('select') ||
+            target.closest('[draggable="true"]') ||
+            target.classList.contains('cursor-pointer')
+          ) {
+            document.body.classList.add('voldog-cursor-hovering');
+          }
+        };
+
+        const handleMouseOut = (e) => {
+          const target = e.target;
+          if (!target) return;
+          if (
+            target.closest('a') ||
+            target.closest('button') ||
+            target.closest('.task-card') ||
+            target.closest('input') ||
+            target.closest('textarea') ||
+            target.closest('select') ||
+            target.closest('[draggable="true"]') ||
+            target.classList.contains('cursor-pointer')
+          ) {
+            document.body.classList.remove('voldog-cursor-hovering');
+          }
+        };
+
+        window.addEventListener('mouseover', handleMouseOver);
+        window.addEventListener('mouseout', handleMouseOut);
+
+        return () => {
+          active = false;
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseover', handleMouseOver);
+          window.removeEventListener('mouseout', handleMouseOut);
+          document.body.classList.remove('voldog-cursor-hovering');
+        };
+      }, []);
+
+      // Run AI prioritization on load
+      useEffect(() => {
+        if (hasKey) {
+          debouncedAIPrioritization();
+        }
+      }, []);
+
+      // Proactive alert checker
+      useEffect(() => {
+        checkAlerts();
+        const interval = setInterval(checkAlerts, ALERT_CHECK_INTERVAL_MS);
+        return () => clearInterval(interval);
+      }, [tasks]);
+
+      // Subscribe to task mutations for AI re-prioritization
+      useEffect(() => {
+        const unsub = useStore.subscribe(
+          (state, prevState) => {
+            const currentHasKey = state.aiProvider === 'groq' ? !!state.groqApiKey : !!state.apiKey;
+            if (state.tasks !== prevState.tasks && currentHasKey) {
+              debouncedAIPrioritization();
+            }
+          }
+        );
+        return unsub;
+      }, []);
+
+      // Prompt for API key on first launch if not set
+      useEffect(() => {
+        if (!hasKey) {
+          setTimeout(() => {
+            useStore.getState().showToast('Set your API key in Settings to enable AI features', 'info');
+          }, 2000);
+        }
+      }, []);
+
+      return html`<div className="app-shell flex h-screen bg-lm-bg overflow-hidden relative" data-view=${currentView}>
+    <${KineticIntro} />
+    <div className="kinetic-shape kinetic-shape--one" aria-hidden="true" />
+    <div className="kinetic-shape kinetic-shape--two" aria-hidden="true" />
+    <div id="voldog-cursor-dot" className="voldog-cursor-dot" />
+    <div id="voldog-cursor-ring" className="voldog-cursor-ring" />
+
+    ${focusMode
+          ? html`<div className="focus-shell flex-1 p-4 md:p-6 overflow-y-auto">
+          <${FocusModeView} />
+        </div>`
+          : html`
+          <${Sidebar} />
+          <div className="flex-1 flex flex-col min-w-0">
+            <${TopBar} />
+            <main className="workspace-main flex-1 p-4 md:p-6 overflow-hidden">
+               <${ViewRouter} />
+            </main>
+          </div>
+        `
+        }
+    <${SettingsModal} />
+    <${ToastContainer} />
+    ${!focusMode && html`<${MobileTabBar} />`}
+  </div>`;
+    }
+
+    // ===================================================================
+    // TEST SUITE
+    // ===================================================================
+    function runTests() {
+      const results = [];
+      let passed = 0;
+      let failed = 0;
+
+      function assert(name, condition) {
+        if (condition) {
+          results.push({ name, pass: true });
+          passed++;
+        } else {
+          results.push({ name, pass: false });
+          failed++;
+        }
+      }
+
+      // -- sanitizeForPrompt tests --
+      assert('sanitize: strips < and >', sanitizeForPrompt('hello ' + String.fromCharCode(60) + 'script' + String.fromCharCode(62) + 'alert("xss")' + String.fromCharCode(60) + '/script' + String.fromCharCode(62)) === 'hello scriptalert("xss")/script');
+      assert('sanitize: collapses newlines', sanitizeForPrompt('a\n\n\n\n\nb').includes('\n\n') && !sanitizeForPrompt('a\n\n\n\n\nb').includes('\n\n\n'));
+      assert('sanitize: caps at 500 chars', sanitizeForPrompt('x'.repeat(600)).length === 500);
+      assert('sanitize: handles empty string', sanitizeForPrompt('') === '');
+      assert('sanitize: handles null', sanitizeForPrompt(null) === '');
+      assert('sanitize: handles number', sanitizeForPrompt(42) === '');
+      assert('sanitize: trims whitespace', sanitizeForPrompt('  hello  ') === 'hello');
+      assert('sanitize: strips carriage returns', sanitizeForPrompt('a\r\nb') === 'a\nb');
+
+      // -- Task CRUD tests --
+      const store = useStore.getState();
+      const initialCount = store.tasks.length;
+      const newTask = store.addTask({ title: 'Test Task', deadline: new Date(Date.now() + 3600000).toISOString(), estimatedMinutes: 30 });
+      assert('CRUD: addTask increases count', useStore.getState().tasks.length === initialCount + 1);
+      assert('CRUD: addTask returns task with id', !!newTask.id);
+
+      store.updateTask(newTask.id, { title: 'Updated Test' });
+      const updated = useStore.getState().tasks.find(t => t.id === newTask.id);
+      assert('CRUD: updateTask changes title', updated?.title === 'Updated Test');
+
+      store.deleteTask(newTask.id);
+      assert('CRUD: deleteTask removes task', useStore.getState().tasks.length === initialCount);
+
+      // -- parseAIResponse tests --
+      assert('parseAI: valid JSON', parseAIResponse('{"rankedTaskIds":["a"]}')?.rankedTaskIds?.[0] === 'a');
+      assert('parseAI: with markdown fences', parseAIResponse('```json\n{"ok":true}\n```')?.ok === true);
+      assert('parseAI: malformed returns null', parseAIResponse('not json at all') === null);
+      assert('parseAI: empty string returns null', parseAIResponse('') === null);
+      assert('parseAI: null input returns null', parseAIResponse(null) === null);
+      assert('parseAI: extracts embedded JSON', parseAIResponse('here is data {"val":1} end')?.val === 1);
+
+      // -- deadlineStatus tests --
+      assert('deadline: overdue', getDeadlineStatus(new Date(Date.now() - 1000).toISOString()) === 'overdue');
+      assert('deadline: critical (30 min)', getDeadlineStatus(new Date(Date.now() + 30 * 60000).toISOString()) === 'critical');
+      assert('deadline: high (2 hours)', getDeadlineStatus(new Date(Date.now() + 2 * 3600000).toISOString()) === 'high');
+      assert('deadline: medium (12 hours)', getDeadlineStatus(new Date(Date.now() + 12 * 3600000).toISOString()) === 'medium');
+      assert('deadline: safe (2 days)', getDeadlineStatus(new Date(Date.now() + 48 * 3600000).toISOString()) === 'safe');
+
+      // -- Rate limiter tests --
+      rateLimiter.reset();
+      assert('rate: under limit allows', rateLimiter.canCall() === true);
+      for (let i = 0; i < 10; i++) rateLimiter.record();
+      assert('rate: at limit blocks', rateLimiter.canCall() === false);
+      rateLimiter.reset();
+      for (let i = 0; i < 9; i++) rateLimiter.record();
+      assert('rate: just under limit allows', rateLimiter.canCall() === true);
+      rateLimiter.reset();
+
+      // -- Recurrence tests --
+      const recTask = { deadline: '2025-06-26T10:00:00Z', recurrence: 'daily', completedAt: '2025-06-26T10:00:00Z' };
+      const nextDate = getNextRecurrenceDate(recTask);
+      assert('recurrence: daily adds 1 day', nextDate && new Date(nextDate).getDate() === 27);
+
+      const weeklyTask = { deadline: '2025-06-26T10:00:00Z', recurrence: 'weekly', completedAt: '2025-06-26T10:00:00Z' };
+      const nextWeekly = getNextRecurrenceDate(weeklyTask);
+      assert('recurrence: weekly adds 7 days', nextWeekly && new Date(nextWeekly).getDate() === 3);
+
+      const monthlyTask = { deadline: '2025-06-26T10:00:00Z', recurrence: 'monthly', completedAt: '2025-06-26T10:00:00Z' };
+      const nextMonthly = getNextRecurrenceDate(monthlyTask);
+      assert('recurrence: monthly adds 1 month', nextMonthly && new Date(nextMonthly).getMonth() === 6);
+
+      const noRecur = { deadline: '2025-06-26T10:00:00Z', recurrence: 'none', completedAt: null };
+      assert('recurrence: none returns null', getNextRecurrenceDate(noRecur) === null);
+
+      // -- Validation tests --
+      assert('validate: empty title fails', validateTitle('') !== null);
+      assert('validate: valid title passes', validateTitle('Hello') === null);
+      assert('validate: long title fails', validateTitle('x'.repeat(201)) !== null);
+      assert('validate: bad deadline fails', validateDeadline('notadate') !== null);
+      assert('validate: valid deadline passes', validateDeadline(new Date().toISOString()) === null);
+      assert('validate: 0 minutes fails', validateEstimatedMinutes(0) !== null);
+      assert('validate: 481 minutes fails', validateEstimatedMinutes(481) !== null);
+
+      return { results, passed, failed };
+    }
+
+    // -- Test Overlay --
+    function TestOverlay() {
+      const [testResults, setTestResults] = useState(null);
+
+      useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('test') === 'true') {
+          setTimeout(() => {
+            const results = runTests();
+            setTestResults(results);
+          }, 500);
+        }
+      }, []);
+
+      if (!testResults) return null;
+
+      return html`<div className="test-overlay">
+    <div className="max-w-2xl mx-auto">
+      <h1 className="text-2xl font-heading font-bold mb-2">LastMinute Test Suite</h1>
+      <p className="mb-4 text-lm-muted">
+        <span className="text-lm-completed font-bold">${testResults.passed} passed</span>
+        ${' / '}
+        <span className=${testResults.failed > 0 ? 'text-lm-critical font-bold' : 'text-lm-muted'}>${testResults.failed} failed</span>
+        ${' / '}
+        <span>${testResults.results.length} total</span>
+      </p>
+
+      <div className="space-y-1">
+        ${testResults.results.map((r, i) => html`<div key=${i}
+          className=${`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${r.pass ? 'bg-emerald-900/20' : 'bg-red-900/20'}`}>
+          <span className=${r.pass ? 'text-lm-completed' : 'text-lm-critical'}>${r.pass ? '✓' : '✗'}</span>
+          <span>${r.name}</span>
+        </div>`)}
+      </div>
+
+      <button onClick=${() => window.location.href = window.location.pathname}
+        className="mt-6 px-4 py-2 bg-lm-primary rounded-lg text-sm hover:opacity-90 transition-opacity"
+        aria-label="Close tests">
+        Close Tests
+      </button>
+    </div>
+  </div>`;
+    }
+
+    // ===================================================================
+    // MOUNT
+    // ===================================================================
+    function Root() {
+      return html`<${ErrorBoundary}>
+    <${App} />
+    <${TestOverlay} />
+  </${ErrorBoundary}>`;
+    }
+
+    const rootEl = document.getElementById('root');
+    const root = createRoot(rootEl);
+    root.render(html`<${Root} />`);
+
+  </script>
+</body>
+
+</html>
